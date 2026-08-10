@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #101418;
+  --color-surface: #171c22;
+  --color-raised: #1d242b;
+  --color-line: #2a3138;
+  --color-ink: #e8eaec;
+  --color-ink-soft: #a8b0b8;
+  --color-ink-faint: #6e7880;
+  --color-accent: #ffc94a;
+  --color-accent-deep: #c98a0a;
+  --font-display: "Futura", "Jost", "Century Gothic", "Avenir Next", system-ui, sans-serif;
+  --font-sans: ui-rounded, -apple-system, "SF Pro Text", system-ui, sans-serif;
+}
+
+html {
+  background: var(--color-bg);
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* keep content clear of the iPhone home indicator / notch */
+.safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4.25rem);
+}
+.tabbar-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
