@@ -17,28 +17,37 @@ function useDebounced(value: string, ms: number): string {
   return debounced
 }
 
+/**
+ * One search box, no modes: shows and people are searched together, so a
+ * query can never land in the "wrong" tab and look broken. Prefix with @
+ * to search people only.
+ */
 export function SearchPage() {
   const [input, setInput] = useState('')
-  const [mode, setMode] = useState<'shows' | 'people'>('shows')
   const query = useDebounced(input, 350)
-  const { data: results, isFetching } = useSearch(mode === 'shows' ? query : '')
+  const peopleOnly = query.trimStart().startsWith('@')
+  const cleanQuery = query.trim().replace(/^@/, '')
+
+  const { data: results, isFetching } = useSearch(peopleOnly ? '' : query)
   const { shows: tracked } = useLibrary()
   const { session } = useSession()
   const peopleEnabled = !!supabase && !!session
 
   const { data: people } = useQuery({
-    queryKey: ['people-search', query.toLowerCase()],
+    queryKey: ['people-search', cleanQuery.toLowerCase()],
     queryFn: async () => {
       const { data } = await supabase!
         .from('profiles')
         .select('username, avatar_url, bio')
-        .ilike('username', `%${query.trim().replace(/^@/, '')}%`)
-        .limit(12)
+        .ilike('username', `%${cleanQuery}%`)
+        .limit(peopleOnly ? 12 : 4)
       return data ?? []
     },
-    enabled: peopleEnabled && mode === 'people' && query.trim().length >= 2,
+    enabled: peopleEnabled && cleanQuery.length >= 2,
     staleTime: 60 * 1000,
   })
+
+  const showEmptyHint = !results && !isFetching && !peopleOnly
 
   return (
     <div className="px-4 pt-6">
@@ -50,38 +59,36 @@ export function SearchPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={mode === 'shows' ? 'Find a show…' : 'Find a person…'}
+            placeholder={peopleEnabled ? 'Shows, or @people…' : 'Find a show…'}
             autoFocus
             inputMode="search"
             enterKeyHint="search"
             className="w-full bg-transparent py-3 text-[0.95rem] text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
-        {peopleEnabled && (
-          <div className="mt-2 flex gap-2">
-            {(
-              [
-                ['shows', 'Shows'],
-                ['people', 'People'],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                onClick={() => setMode(value)}
-                className={`rounded-full px-3.5 py-1 font-display text-xs font-bold transition-colors ${
-                  mode === value ? 'bg-accent text-bg' : 'bg-surface text-ink-soft'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {mode === 'people' && (
+      {showEmptyHint && (
+        <p className="mt-10 text-center text-sm text-ink-faint">
+          Search anything — from tonight's premiere to a 90s sitcom.
+          {peopleEnabled && (
+            <>
+              <br />
+              Type <span className="text-accent">@name</span> to find people.
+            </>
+          )}
+        </p>
+      )}
+
+      {/* ---- people (folded in above shows; the whole list when @-prefixed) ---- */}
+      {(people?.length ?? 0) > 0 && (
         <div className="mt-2 flex flex-col gap-2">
-          {(people ?? []).map((p) => (
+          {!peopleOnly && (
+            <p className="font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+              People
+            </p>
+          )}
+          {people!.map((p) => (
             <Link key={p.username} to={`/u/${p.username}`} className="flex items-center gap-3 rounded-xl bg-surface p-2.5">
               <span className="h-11 w-11 flex-none overflow-hidden rounded-full bg-raised">
                 {p.avatar_url ? (
@@ -98,25 +105,24 @@ export function SearchPage() {
               </span>
             </Link>
           ))}
-          {query.trim().length >= 2 && people?.length === 0 && (
-            <p className="mt-8 text-center text-sm text-ink-faint">No one found by that name.</p>
-          )}
-          {query.trim().length < 2 && (
-            <p className="mt-8 text-center text-sm text-ink-faint">
-              Search usernames to find friends to follow.
-            </p>
-          )}
         </div>
       )}
 
-      {mode === 'shows' && !results && !isFetching && (
-        <p className="mt-10 text-center text-sm text-ink-faint">
-          Search anything — from tonight's premiere to a 90s sitcom.
-        </p>
+      {peopleOnly && cleanQuery.length >= 2 && people?.length === 0 && (
+        <p className="mt-8 text-center text-sm text-ink-faint">No one found by that name.</p>
+      )}
+      {peopleOnly && cleanQuery.length < 2 && (
+        <p className="mt-8 text-center text-sm text-ink-faint">Keep typing to search usernames…</p>
       )}
 
+      {/* ---- shows ---- */}
       <div className="mt-2 flex flex-col gap-2">
-        {mode === 'shows' && results?.map(({ show }) => {
+        {(people?.length ?? 0) > 0 && !peopleOnly && (results?.length ?? 0) > 0 && (
+          <p className="mt-2 font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+            Shows
+          </p>
+        )}
+        {!peopleOnly && results?.map(({ show }) => {
           const isTracked = show.id in tracked
           const year = show.premiered?.slice(0, 4)
           const network = show.network?.name ?? show.webChannel?.name
