@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useSearch } from '../queries'
+import { useMovieSearch, useSearch } from '../queries'
 import { trackShow, untrackShow, useLibrary } from '../store/library'
+import { removeMovie, saveMovie, useMovies } from '../store/movies'
+import { useTmdbKey } from '../store/settings'
+import { tmdbImage } from '../api/tmdb'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import { Poster } from '../components/Poster'
@@ -18,8 +21,8 @@ function useDebounced(value: string, ms: number): string {
 }
 
 /**
- * One search box, no modes: shows and people are searched together, so a
- * query can never land in the "wrong" tab and look broken. Prefix with @
+ * One search box, no modes: shows, movies, and people are searched together,
+ * so a query can never land in the "wrong" tab and look broken. Prefix with @
  * to search people only.
  */
 export function SearchPage() {
@@ -28,10 +31,14 @@ export function SearchPage() {
   const peopleOnly = query.trimStart().startsWith('@')
   const cleanQuery = query.trim().replace(/^@/, '')
 
+  const tmdbKey = useTmdbKey()
   const { data: results, isFetching } = useSearch(peopleOnly ? '' : query)
+  const { data: movieResults } = useMovieSearch(peopleOnly ? '' : query, tmdbKey)
   const { shows: tracked } = useLibrary()
+  const { movies: savedMovies } = useMovies()
   const { session } = useSession()
   const peopleEnabled = !!supabase && !!session
+  const moviesEnabled = tmdbKey.length > 0
 
   const { data: people } = useQuery({
     queryKey: ['people-search', cleanQuery.toLowerCase()],
@@ -59,7 +66,11 @@ export function SearchPage() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={peopleEnabled ? 'Shows, or @people…' : 'Find a show…'}
+            placeholder={
+              moviesEnabled
+                ? peopleEnabled ? 'Shows, movies, or @people…' : 'Shows & movies…'
+                : peopleEnabled ? 'Shows, or @people…' : 'Find a show…'
+            }
             autoFocus
             inputMode="search"
             enterKeyHint="search"
@@ -70,7 +81,9 @@ export function SearchPage() {
 
       {showEmptyHint && (
         <p className="mt-10 text-center text-sm text-ink-faint">
-          Search anything — from tonight's premiere to a 90s sitcom.
+          {moviesEnabled
+            ? "Search anything — tonight's premiere, a 90s sitcom, or a movie for later."
+            : "Search anything — from tonight's premiere to a 90s sitcom."}
           {peopleEnabled && (
             <>
               <br />
@@ -117,7 +130,9 @@ export function SearchPage() {
 
       {/* ---- shows ---- */}
       <div className="mt-2 flex flex-col gap-2">
-        {(people?.length ?? 0) > 0 && !peopleOnly && (results?.length ?? 0) > 0 && (
+        {!peopleOnly &&
+          (results?.length ?? 0) > 0 &&
+          ((people?.length ?? 0) > 0 || (movieResults?.length ?? 0) > 0) && (
           <p className="mt-2 font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
             Shows
           </p>
@@ -157,6 +172,62 @@ export function SearchPage() {
           )
         })}
       </div>
+
+      {/* ---- movies ---- */}
+      {!peopleOnly && (movieResults?.length ?? 0) > 0 && (
+        <div className="mt-2 flex flex-col gap-2">
+          <p className="mt-2 font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+            Movies
+          </p>
+          {movieResults!.map((movie) => {
+            const saved = savedMovies[movie.id]
+            const year = movie.release_date?.slice(0, 4)
+            return (
+              <div key={movie.id} className="flex items-center gap-3 rounded-xl bg-surface p-2.5">
+                <Link to={`/movie/${movie.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                  <Poster src={tmdbImage(movie.poster_path, 'w154')} alt="" kind="movie" className="h-16 w-11 flex-none rounded-md" />
+                  <div className="min-w-0">
+                    <p className="truncate font-display text-sm font-bold">{movie.title}</p>
+                    <p className="mt-0.5 truncate text-xs text-ink-soft">
+                      {['Movie', year, movie.vote_average > 0 ? `★ ${movie.vote_average.toFixed(1)}` : null]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                    {saved && (
+                      <p className="mt-0.5 truncate text-xs text-accent/80">
+                        {saved.status === 'watched' ? 'Watched' : 'On your list'}
+                      </p>
+                    )}
+                  </div>
+                </Link>
+                <button
+                  onClick={() => (saved ? removeMovie(movie.id) : saveMovie(movie, 'want'))}
+                  aria-label={saved ? `Remove ${movie.title} from your list` : `Add ${movie.title} to want to watch`}
+                  className={`flex h-10 w-10 flex-none items-center justify-center rounded-full transition-colors ${
+                    saved
+                      ? 'bg-accent text-bg'
+                      : 'border-2 border-line text-ink-soft active:border-accent active:text-accent'
+                  }`}
+                >
+                  {saved ? <CheckIcon className="h-4.5 w-4.5" /> : <PlusIcon className="h-4.5 w-4.5" />}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* movies exist but aren't connected yet — make the upgrade discoverable */}
+      {!peopleOnly && !moviesEnabled && (results?.length ?? 0) > 0 && (
+        <div className="mt-4 rounded-xl border border-line bg-surface p-3.5">
+          <p className="text-xs leading-relaxed text-ink-soft">
+            Looking for a movie? Connect a free TMDB key and movies show up here too.
+          </p>
+          <Link to="/profile" className="mt-1.5 inline-block text-xs font-bold text-accent">
+            Connect in Profile →
+          </Link>
+        </div>
+      )}
     </div>
   )
 }

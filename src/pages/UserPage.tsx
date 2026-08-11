@@ -3,9 +3,11 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import { useProfile } from '../store/profile'
+import { useFriendTasteSnapshot, useMyTasteSnapshot } from '../queries'
+import { computeTasteMatch } from '../lib/match'
 import { agoLabel } from '../lib/time'
 import { Poster } from '../components/Poster'
-import { ChevronLeftIcon, UserIcon } from '../components/icons'
+import { ChevronLeftIcon, HeartsIcon, UserIcon } from '../components/icons'
 import type { Top10Show } from '../store/profile'
 
 interface RemoteProfile {
@@ -14,6 +16,45 @@ interface RemoteProfile {
   bio: string
   avatar_url: string | null
   top10_shows: Top10Show[]
+  /** may be absent until the movies migration runs */
+  top10_movies?: Top10Show[] | null
+}
+
+interface RemoteMovie {
+  movie_id: number
+  title: string
+  poster: string | null
+  status: string
+}
+
+/** Compatibility teaser — taps through to the full MrWatch AI page. */
+function TasteMatchCard({ username }: { username: string }) {
+  const mine = useMyTasteSnapshot()
+  const theirs = useFriendTasteSnapshot(username, true)
+  const match =
+    mine.ready && theirs.ready && theirs.snapshot
+      ? computeTasteMatch(mine.snapshot, theirs.snapshot)
+      : null
+
+  return (
+    <Link
+      to={`/together/${username}`}
+      className="mt-4 flex items-center gap-3 rounded-xl border border-accent/40 bg-surface p-3"
+    >
+      <span className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-accent/15 text-accent">
+        <HeartsIcon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-display text-sm font-bold">
+          {match ? `${match.percent}% Taste Match` : 'Taste Match'}
+        </span>
+        <span className="block truncate text-xs text-ink-faint">
+          MrWatch AI — find tonight's watch together
+        </span>
+      </span>
+      <span className="flex-none font-display text-sm font-bold text-accent">→</span>
+    </Link>
+  )
 }
 
 export function UserPage() {
@@ -27,9 +68,10 @@ export function UserPage() {
   const { data: person, isLoading } = useQuery({
     queryKey: ['user', username.toLowerCase()],
     queryFn: async (): Promise<RemoteProfile | null> => {
+      // select * so a database that predates newer columns still resolves
       const { data } = await supabase!
         .from('profiles')
-        .select('id, username, bio, avatar_url, top10_shows')
+        .select('*')
         .ilike('username', username)
         .maybeSingle()
       return data
@@ -40,8 +82,9 @@ export function UserPage() {
   const { data: extras } = useQuery({
     queryKey: ['user-extras', person?.id],
     queryFn: async () => {
-      const [tracks, followers, following, meFollowing, articles] = await Promise.all([
+      const [tracks, movieTracks, followers, following, meFollowing, articles] = await Promise.all([
         supabase!.from('tracks').select('show_id, name, image').eq('user_id', person!.id).order('added_at', { ascending: false }),
+        supabase!.from('movie_tracks').select('movie_id, title, poster, status').eq('user_id', person!.id).order('added_at', { ascending: false }),
         supabase!.from('follows').select('*', { count: 'exact', head: true }).eq('followee_id', person!.id),
         supabase!.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', person!.id),
         supabase!.from('follows').select('followee_id').eq('follower_id', uid!).eq('followee_id', person!.id).maybeSingle(),
@@ -49,6 +92,8 @@ export function UserPage() {
       ])
       return {
         tracks: tracks.data ?? [],
+        // table may not exist pre-migration; error → just show no movies
+        movies: (movieTracks.data ?? []) as RemoteMovie[],
         followers: followers.count ?? 0,
         following: following.count ?? 0,
         iFollow: !!meFollowing.data,
@@ -119,9 +164,10 @@ export function UserPage() {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 rounded-xl bg-surface py-3 text-center">
+      <div className="mt-4 grid grid-cols-4 rounded-xl bg-surface py-3 text-center">
         {[
           [extras?.tracks.length ?? '—', 'shows'],
+          [extras ? extras.movies.filter((m) => m.status === 'watched').length : '—', 'movies'],
           [extras?.followers ?? '—', 'followers'],
           [extras?.following ?? '—', 'following'],
         ].map(([n, label]) => (
@@ -131,6 +177,8 @@ export function UserPage() {
           </div>
         ))}
       </div>
+
+      <TasteMatchCard username={person.username} />
 
       {person.bio && <p className="mt-4 text-sm leading-snug text-ink-soft">{person.bio}</p>}
 
@@ -180,6 +228,40 @@ export function UserPage() {
                 <Poster src={t.image} alt={t.name} className="aspect-[2/3] w-full rounded-lg" />
               </Link>
             ))}
+          </div>
+        </section>
+      )}
+
+      {(person.top10_movies?.length ?? 0) > 0 && (
+        <section className="mt-7">
+          <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">
+            Top movies
+          </h2>
+          <ol className="mt-3 flex flex-col gap-2">
+            {person.top10_movies!.slice(0, 10).map((m, i) => (
+              <li key={m.id}>
+                <Link to={`/movie/${m.id}`} className="flex items-center gap-3 rounded-xl bg-surface p-2">
+                  <span className="w-6 text-center font-display text-sm font-bold text-accent tabular-nums">{i + 1}</span>
+                  <Poster src={m.image} alt="" kind="movie" className="h-12 w-8 flex-none rounded" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {extras && extras.movies.filter((m) => m.status === 'watched').length > 0 && (
+        <section className="mt-7">
+          <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">Movies watched</h2>
+          <div className="mt-3 grid grid-cols-4 gap-2.5">
+            {extras.movies
+              .filter((m) => m.status === 'watched')
+              .map((m) => (
+                <Link key={m.movie_id} to={`/movie/${m.movie_id}`}>
+                  <Poster src={m.poster} alt={m.title} kind="movie" className="aspect-[2/3] w-full rounded-lg" />
+                </Link>
+              ))}
           </div>
         </section>
       )}

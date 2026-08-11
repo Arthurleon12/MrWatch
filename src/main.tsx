@@ -8,6 +8,8 @@ import { UpNextPage } from './pages/UpNextPage'
 import { SchedulePage } from './pages/SchedulePage'
 import { SearchPage } from './pages/SearchPage'
 import { ShowPage } from './pages/ShowPage'
+import { MoviePage } from './pages/MoviePage'
+import { TogetherPage } from './pages/TogetherPage'
 import { ForYouPage } from './pages/ForYouPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { WritePage } from './pages/WritePage'
@@ -38,10 +40,13 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/write" element={<WritePage />} />
             <Route path="/article/:id" element={<ArticlePage />} />
-            <Route path="/rank/:id" element={<RankPage />} />
+            <Route path="/rank/movie/:id" element={<RankPage kind="movie" />} />
+            <Route path="/rank/:id" element={<RankPage kind="show" />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/u/:username" element={<UserPage />} />
+            <Route path="/together/:username" element={<TogetherPage />} />
             <Route path="/show/:id" element={<ShowPage />} />
+            <Route path="/movie/:id" element={<MoviePage />} />
           </Route>
         </Routes>
       </BrowserRouter>

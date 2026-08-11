@@ -2,13 +2,21 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useLibrary } from '../store/library'
+import { useMovies } from '../store/movies'
 import { useArticles } from '../store/articles'
 import { useProfile } from '../store/profile'
-import { useSettings } from '../store/settings'
+import { useTmdbKey } from '../store/settings'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
-import { useFansAlsoWatch, useScheduleWindow, useTrackedShowDetails } from '../queries'
+import {
+  useFansAlsoWatch,
+  useMovieRecs,
+  useNowPlaying,
+  useScheduleWindow,
+  useTrackedShowDetails,
+} from '../queries'
 import { stripHtml } from '../api/tvmaze'
+import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { buildTasteProfile, rankCandidates } from '../lib/recommend'
 import { agoLabel } from '../lib/time'
 import { Poster } from '../components/Poster'
@@ -37,9 +45,10 @@ interface FeedArticle {
 
 export function ForYouPage() {
   const { shows: tracked, watched } = useLibrary()
+  const { movies: savedMovies } = useMovies()
   const localArticles = useArticles()
   const profile = useProfile()
-  const { tmdbKey } = useSettings()
+  const tmdbKey = useTmdbKey()
   const { session, profileStatus } = useSession()
   const [lens, setLens] = useState<Lens>('all')
 
@@ -120,6 +129,21 @@ export function ForYouPage() {
   }, [profile.top10Shows, trackedIdList.join(','), trackedDetails.map((q) => q.dataUpdatedAt).join(',')])
   const fansQueries = useFansAlsoWatch(seeds, tmdbKey)
 
+  /** Movie rails: what's in theaters + recs seeded from your favorite movie. */
+  const movieSeed = useMemo(() => {
+    if (profile.top10Movies.length > 0) {
+      return { id: profile.top10Movies[0].id, title: profile.top10Movies[0].name }
+    }
+    const watchedMovies = Object.values(savedMovies)
+      .filter((m) => m.status === 'watched')
+      .sort((a, b) => (b.watchedAt ?? b.addedAt) - (a.watchedAt ?? a.addedAt))
+    return watchedMovies[0] ? { id: watchedMovies[0].id, title: watchedMovies[0].title } : null
+  }, [profile.top10Movies, savedMovies])
+  const { data: nowPlaying } = useNowPlaying(tmdbKey)
+  const { data: movieRecs } = useMovieRecs(movieSeed?.id ?? 0, tmdbKey)
+  const freshMovies = (list: TmdbMovie[] | undefined) =>
+    (list ?? []).filter((m) => !savedMovies[m.id])
+
   return (
     <div className="px-4 pt-6">
       <div className="flex items-center justify-between">
@@ -153,9 +177,11 @@ export function ForYouPage() {
           </button>
         ))}
       </div>
-      <p className="mt-2 text-[0.68rem] text-ink-faint">
-        Movies join the mix once the TMDB catalog is connected.
-      </p>
+      {!tmdbKey && (
+        <p className="mt-2 text-[0.68rem] text-ink-faint">
+          Movies join the mix once the TMDB catalog is connected.
+        </p>
+      )}
 
       {/* ---- articles ---- */}
       <section className="mt-6">
@@ -227,11 +253,11 @@ export function ForYouPage() {
       ) : (
         trackedIdList.length > 0 && (
           <section className="mt-8 rounded-xl border border-line bg-surface p-4">
-            <h2 className="font-display text-sm font-bold">Unlock "fans also watch"</h2>
+            <h2 className="font-display text-sm font-bold">Unlock movies + "fans also watch"</h2>
             <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-              Connect a free TMDB API key and For You adds what people who watch your shows
-              actually watch — real viewing patterns from millions of TMDB users, until MrWatch
-              has a community of its own.
+              Connect a free TMDB API key and MrWatch adds movies — search, watchlist, Top 10 —
+              plus what people who watch your shows actually watch, from real viewing patterns of
+              millions of TMDB users.
             </p>
             <Link to="/profile" className="mt-2 inline-block text-xs font-bold text-accent">
               Connect in Profile →
@@ -282,6 +308,46 @@ export function ForYouPage() {
           ))}
         </div>
       </section>
+
+      {/* ---- movies: in theaters ---- */}
+      {tmdbKey && freshMovies(nowPlaying).length > 0 && (
+        <section className="mt-8">
+          <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">
+            In theaters now
+          </h2>
+          <div className="mt-3 flex gap-3 overflow-x-auto pb-2">
+            {freshMovies(nowPlaying).map((movie) => (
+              <Link key={movie.id} to={`/movie/${movie.id}`} className="w-24 flex-none">
+                <Poster src={tmdbImage(movie.poster_path, 'w154')} alt="" kind="movie" className="h-34 w-24 rounded-lg" />
+                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{movie.title}</p>
+                {movie.vote_average > 0 && (
+                  <p className="text-[0.62rem] text-ink-faint">★ {movie.vote_average.toFixed(1)}</p>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ---- movies: seeded by your favorite ---- */}
+      {tmdbKey && movieSeed && freshMovies(movieRecs).length > 0 && (
+        <section className="mt-8">
+          <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">
+            Because you watched {movieSeed.title}
+          </h2>
+          <div className="mt-3 flex gap-3 overflow-x-auto pb-2">
+            {freshMovies(movieRecs).map((movie) => (
+              <Link key={movie.id} to={`/movie/${movie.id}`} className="w-24 flex-none">
+                <Poster src={tmdbImage(movie.poster_path, 'w154')} alt="" kind="movie" className="h-34 w-24 rounded-lg" />
+                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{movie.title}</p>
+                {movie.vote_average > 0 && (
+                  <p className="text-[0.62rem] text-ink-faint">★ {movie.vote_average.toFixed(1)}</p>
+                )}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

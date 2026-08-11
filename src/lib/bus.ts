@@ -3,7 +3,7 @@
  * and pushes to Supabase. Keeps stores free of any backend imports.
  */
 
-export type StoreName = 'library' | 'profile' | 'articles'
+export type StoreName = 'library' | 'movies' | 'profile' | 'articles'
 
 type Handler = (store: StoreName) => void
 

@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLibrary } from '../store/library'
+import { useMovies } from '../store/movies'
 import {
   fileToAvatar,
   setTop10Episodes,
+  setTop10Movies,
   setTop10Shows,
   updateProfile,
   useProfile,
@@ -12,7 +14,7 @@ import {
 } from '../store/profile'
 import { useQuery } from '@tanstack/react-query'
 import { useShow } from '../queries'
-import { useSettings, updateSettings } from '../store/settings'
+import { hasBuiltInTmdbKey, useSettings, updateSettings } from '../store/settings'
 import { tmdbKeyWorks } from '../api/tmdb'
 import { backendReady, supabase } from '../lib/supabase'
 import { deleteAccount, signOut, useSession } from '../store/session'
@@ -40,9 +42,18 @@ export function ProfilePage() {
   const [nameError, setNameError] = useState<string | null>(null)
   const [editShows, setEditShows] = useState(false)
   const [editEpisodes, setEditEpisodes] = useState(false)
+  const [editMovies, setEditMovies] = useState(false)
 
   const tracked = Object.values(shows).sort((a, b) => b.addedAt - a.addedAt)
   const episodesWatched = Object.values(watched).reduce((sum, list) => sum + list.length, 0)
+  const { movies } = useMovies()
+  const movieList = Object.values(movies)
+  const moviesWatched = movieList
+    .filter((m) => m.status === 'watched')
+    .sort((a, b) => (b.watchedAt ?? b.addedAt) - (a.watchedAt ?? a.addedAt))
+  const moviesWanted = movieList
+    .filter((m) => m.status === 'want')
+    .sort((a, b) => b.addedAt - a.addedAt)
 
   const { session, profileStatus } = useSession()
   const signedIn = !!session && profileStatus === 'ready'
@@ -124,16 +135,17 @@ export function ProfilePage() {
       </div>
 
       {/* ---- stats ---- */}
-      <div className="mt-5 grid grid-cols-4 rounded-xl bg-surface py-3 text-center">
+      <div className="mt-5 grid grid-cols-5 rounded-xl bg-surface py-3 text-center">
         {[
           [tracked.length, 'shows'],
           [episodesWatched, 'episodes'],
+          [moviesWatched.length, 'movies'],
           [signedIn ? (followCounts?.followers ?? '…') : 0, 'followers'],
           [signedIn ? (followCounts?.following ?? '…') : 0, 'following'],
         ].map(([n, label]) => (
           <div key={label as string}>
             <p className="font-display text-lg font-bold tabular-nums">{n}</p>
-            <p className="text-[0.65rem] uppercase tracking-wider text-ink-faint">{label}</p>
+            <p className="text-[0.6rem] uppercase tracking-wider text-ink-faint">{label}</p>
           </div>
         ))}
       </div>
@@ -304,6 +316,82 @@ export function ProfilePage() {
         {editEpisodes && profile.top10Episodes.length < 10 && <EpisodePicker />}
       </section>
 
+      {/* ---- top 10 movies ---- */}
+      <section className="mt-8">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Top 10 movies</h2>
+          <button onClick={() => setEditMovies((v) => !v)} className="text-xs font-medium text-accent">
+            {editMovies ? 'Done' : 'Edit'}
+          </button>
+        </div>
+
+        {profile.top10Movies.length === 0 && !editMovies && (
+          <p className="mt-2 text-sm text-ink-faint">
+            {moviesWatched.length > 0
+              ? 'Tap Edit to rank the movies you love.'
+              : 'Mark movies watched, then rank your favorites here.'}
+          </p>
+        )}
+
+        <ol className="mt-3 flex flex-col gap-2">
+          {profile.top10Movies.map((m, i) => (
+            <li key={m.id} className="flex items-center gap-3 rounded-xl bg-surface p-2">
+              <span className="w-6 text-center font-display text-sm font-bold text-accent tabular-nums">
+                {i + 1}
+              </span>
+              <Poster src={m.image} alt="" kind="movie" className="h-12 w-8 flex-none rounded" />
+              <Link to={`/movie/${m.id}`} className="min-w-0 flex-1 truncate text-sm font-medium">
+                {m.name}
+              </Link>
+              {editMovies && (
+                <span className="flex flex-none gap-1">
+                  <button onClick={() => setTop10Movies(move(profile.top10Movies, i, -1))} aria-label="Move up" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Movies(move(profile.top10Movies, i, 1))} aria-label="Move down" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Movies(profile.top10Movies.filter((x) => x.id !== m.id))} aria-label="Remove" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+
+        {editMovies && profile.top10Movies.length < 10 && (
+          <div className="mt-3">
+            <p className="text-xs font-medium text-ink-faint">
+              {moviesWatched.length === 0 ? (
+                <>No watched movies yet — <Link to="/search" className="text-accent">find one</Link> and mark it watched.</>
+              ) : profile.top10Movies.length === 0 ? (
+                'Add your first movie:'
+              ) : (
+                'Add a movie — a quick head-to-head finds its spot:'
+              )}
+            </p>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
+              {moviesWatched
+                .filter((m) => !profile.top10Movies.some((t) => t.id === m.id))
+                .map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() =>
+                      profile.top10Movies.length === 0
+                        ? setTop10Movies([{ id: m.id, name: m.title, image: m.poster }])
+                        : navigate(`/rank/movie/${m.id}`)
+                    }
+                    className="w-16 flex-none text-left"
+                  >
+                    <span className="relative block">
+                      <Poster src={m.poster} alt={m.title} kind="movie" className="h-22 w-16 rounded-lg" />
+                      <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-bg">
+                        <PlusIcon className="h-3 w-3" />
+                      </span>
+                    </span>
+                    <span className="mt-1 block truncate text-[0.6rem] text-ink-soft">{m.title}</span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* ---- connections ---- */}
       <TmdbConnect />
 
@@ -325,6 +413,45 @@ export function ProfilePage() {
               </Link>
             ))}
           </div>
+        )}
+      </section>
+
+      {/* ---- movies ---- */}
+      <section className="mt-8">
+        <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Movies</h2>
+        {movieList.length === 0 ? (
+          <p className="mt-2 text-sm text-ink-faint">
+            Nothing yet — <Link to="/search" className="text-accent">find a movie</Link> to watch or log one
+            you've seen.
+          </p>
+        ) : (
+          <>
+            {moviesWanted.length > 0 && (
+              <>
+                <p className="mt-3 text-xs font-medium text-ink-faint">Want to watch</p>
+                <div className="mt-2 flex gap-2.5 overflow-x-auto pb-2">
+                  {moviesWanted.map((m) => (
+                    <Link key={m.id} to={`/movie/${m.id}`} className="w-20 flex-none">
+                      <Poster src={m.poster} alt={m.title} kind="movie" className="aspect-[2/3] w-full rounded-lg" />
+                      <span className="mt-1 block truncate text-[0.62rem] text-ink-soft">{m.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
+            {moviesWatched.length > 0 && (
+              <>
+                <p className="mt-3 text-xs font-medium text-ink-faint">Watched · {moviesWatched.length}</p>
+                <div className="mt-2 grid grid-cols-4 gap-2.5">
+                  {moviesWatched.map((m) => (
+                    <Link key={m.id} to={`/movie/${m.id}`}>
+                      <Poster src={m.poster} alt={m.title} kind="movie" className="aspect-[2/3] w-full rounded-lg" />
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
       </section>
     </div>
@@ -370,7 +497,7 @@ function AccountSection({ email }: { email: string }) {
   )
 }
 
-/** TMDB key entry — unlocks "fans also watch" recs and, later, movies. */
+/** TMDB key entry — unlocks movies (search, tracking, recs) + "fans also watch". */
 function TmdbConnect() {
   const { tmdbKey } = useSettings()
   const [draft, setDraft] = useState('')
@@ -396,7 +523,7 @@ function TmdbConnect() {
         <div className="mt-3 flex items-center justify-between rounded-xl bg-surface p-3.5">
           <div>
             <p className="font-display text-sm font-bold">TMDB</p>
-            <p className="text-xs text-good">Connected — "fans also watch" is live on For You</p>
+            <p className="text-xs text-good">Connected — movies and "fans also watch" are live</p>
           </div>
           <button
             onClick={() => updateSettings({ tmdbKey: '' })}
@@ -405,12 +532,18 @@ function TmdbConnect() {
             Disconnect
           </button>
         </div>
+      ) : hasBuiltInTmdbKey ? (
+        <div className="mt-3 rounded-xl bg-surface p-3.5">
+          <p className="font-display text-sm font-bold">TMDB</p>
+          <p className="text-xs text-good">Included with MrWatch — movies and "fans also watch" are live</p>
+        </div>
       ) : (
         <div className="mt-3 rounded-xl bg-surface p-3.5">
           <p className="font-display text-sm font-bold">TMDB</p>
           <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-            Powers "fans of your shows also watch" and (soon) movies. Create a free API key at
-            themoviedb.org → Settings → API, then paste it here. It's stored on this device only.
+            Unlocks movies — search, your watchlist, Top 10 — plus "fans of your shows also
+            watch". Create a free API key at themoviedb.org → Settings → API, then paste it here.
+            It's stored on this device only.
           </p>
           <div className="mt-2 flex gap-2">
             <input

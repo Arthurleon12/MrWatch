@@ -1,13 +1,24 @@
 /**
- * TMDB integration — the collaborative-filtering signal ("people who watch
- * this also watch…") until MrWatch has its own user base. Every result is
- * mapped back to a TVmaze show via IMDb ids so the rest of the app keeps
- * one id space.
+ * TMDB integration, two jobs:
+ *  1. The collaborative-filtering signal for TV ("people who watch this also
+ *     watch…") — every result is mapped back to a TVmaze show via IMDb ids so
+ *     the TV side of the app keeps one id space.
+ *  2. The movie catalog: search, details, recommendations, now-playing.
+ *     Movies live natively in TMDB id space; they never cross into TVmaze.
  */
 
 import type { TvmShow } from '../types'
 
 const BASE = 'https://api.themoviedb.org/3'
+const IMG = 'https://image.tmdb.org/t/p'
+
+/** Full CDN URL for a TMDB image path, or null when there is none. */
+export function tmdbImage(
+  path: string | null | undefined,
+  size: 'w154' | 'w342' | 'w500' = 'w342',
+): string | null {
+  return path ? `${IMG}/${size}${path}` : null
+}
 
 async function tmdbGet<T>(path: string, key: string): Promise<T> {
   const sep = path.includes('?') ? '&' : '?'
@@ -25,6 +36,65 @@ interface TmdbRecsResult {
 interface TmdbExternalIds {
   imdb_id: string | null
 }
+
+/* ------------------------------- movies -------------------------------- */
+
+export interface TmdbMovie {
+  id: number
+  title: string
+  release_date?: string | null
+  poster_path: string | null
+  overview: string
+  vote_average: number
+  vote_count?: number
+  popularity?: number
+  genre_ids?: number[]
+  original_language?: string
+}
+
+export interface TmdbMovieDetails extends TmdbMovie {
+  runtime: number | null
+  tagline?: string
+  genres: { id: number; name: string }[]
+  credits?: {
+    cast: { name: string; order: number }[]
+    crew: { name: string; job: string }[]
+  }
+}
+
+interface TmdbMovieList {
+  results: TmdbMovie[]
+}
+
+export async function searchMovies(query: string, key: string): Promise<TmdbMovie[]> {
+  const list = await tmdbGet<TmdbMovieList>(
+    `/search/movie?query=${encodeURIComponent(query)}&include_adult=false`,
+    key,
+  )
+  return list.results.slice(0, 12)
+}
+
+export async function getMovie(id: number, key: string): Promise<TmdbMovieDetails> {
+  return tmdbGet<TmdbMovieDetails>(`/movie/${id}?append_to_response=credits`, key)
+}
+
+export async function getMovieRecommendations(id: number, key: string, limit = 12): Promise<TmdbMovie[]> {
+  const list = await tmdbGet<TmdbMovieList>(`/movie/${id}/recommendations`, key)
+  return list.results.filter((m) => m.poster_path).slice(0, limit)
+}
+
+export async function getNowPlaying(key: string, limit = 12): Promise<TmdbMovie[]> {
+  const list = await tmdbGet<TmdbMovieList>('/movie/now_playing?region=US', key)
+  return list.results.filter((m) => m.poster_path).slice(0, limit)
+}
+
+/** Numeric genre_ids → names, needed to score list results by taste. */
+export async function getMovieGenreMap(key: string): Promise<Map<number, string>> {
+  const res = await tmdbGet<{ genres: { id: number; name: string }[] }>('/genre/movie/list', key)
+  return new Map(res.genres.map((g) => [g.id, g.name]))
+}
+
+/* ----------------------------- TV crossover ----------------------------- */
 
 /** Validate a key with the cheapest authenticated call. */
 export async function tmdbKeyWorks(key: string): Promise<boolean> {

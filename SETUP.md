@@ -68,6 +68,26 @@ Supabase → **Authentication → URL Configuration**:
 
 Every future `git push` redeploys automatically.
 
+## 7. Movies + MrWatch AI (TMDB) — ~5 min
+
+Movies (search, watchlist, Top 10 movies) and the MrWatch AI "watch together" picks
+run on the TMDB catalog. Two steps:
+
+1. **Get a key**: https://www.themoviedb.org → sign up (free) → Settings → API →
+   Create → Developer → fill the form (personal/hobby project) → copy the
+   **API Key** (the short "API Key (v3 auth)" one).
+2. **Give it to the app** — either way works, the first is better:
+   - **For everyone**: add `VITE_TMDB_API_KEY` with that value in Vercel →
+     Settings → Environment Variables, then redeploy. Every user gets movies with
+     zero setup. (Also put it in your local `.env.local`.)
+   - **Just this device**: paste it in Profile → Connections.
+
+**If your database predates movies** (it does, if you ran schema.sql before Aug 11,
+2026): open Supabase → SQL Editor and run
+[`supabase/migrations/2026-08-11-movies.sql`](supabase/migrations/2026-08-11-movies.sql)
+once. Until then movies still work on each device — they just don't sync/appear on
+profiles. Everything else keeps syncing regardless.
+
 ## What your friends experience
 
 Open the link → Continue with Google (or email link) → pick a unique @username →
@@ -79,6 +99,6 @@ everyone's articles.
 
 - Anyone who used the app before signing in keeps their history: first sign-in
   uploads the device's data into the new account.
-- The TMDB key (Profile → Connections) is separate and per-device for now.
+- The TMDB key: see step 7 — one key in Vercel unlocks movies for everyone.
 - Custom domain (e.g. mrwatch.app): buy the domain, add it in Vercel → Domains,
   then update the Supabase Site URL + redirect list.

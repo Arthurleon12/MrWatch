@@ -115,7 +115,7 @@ export function scoreShow(candidate: TvmShow, profile: TasteProfile): ScoredShow
 }
 
 /** Formats that don't belong in a scripted-taste feed. */
-const EXCLUDED_TYPES = new Set([
+export const EXCLUDED_TYPES = new Set([
   'News',
   'Sports',
   'Talk Show',

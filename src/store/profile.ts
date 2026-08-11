@@ -20,6 +20,9 @@ export interface Top10Show {
   image: string | null
 }
 
+/** Same shape as Top10Show, but `id` is a TMDB movie id and `name` a title. */
+export type Top10Movie = Top10Show
+
 export interface Top10Episode {
   id: number
   showId: number
@@ -35,6 +38,7 @@ export interface ProfileState {
   avatar: string | null // data URL, downscaled
   top10Shows: Top10Show[]
   top10Episodes: Top10Episode[]
+  top10Movies: Top10Movie[]
   /** usernames — populated for real once accounts exist */
   following: string[]
   followers: string[]
@@ -48,6 +52,7 @@ const DEFAULT_PROFILE: ProfileState = {
   avatar: null,
   top10Shows: [],
   top10Episodes: [],
+  top10Movies: [],
   following: [],
   followers: [],
 }
@@ -114,6 +119,10 @@ export function setTop10Shows(list: Top10Show[]) {
 
 export function setTop10Episodes(list: Top10Episode[]) {
   commit({ ...state, top10Episodes: list.slice(0, 10) })
+}
+
+export function setTop10Movies(list: Top10Movie[]) {
+  commit({ ...state, top10Movies: list.slice(0, 10) })
 }
 
 /** Downscale an uploaded image to a small square data URL for storage. */

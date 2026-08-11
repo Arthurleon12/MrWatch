@@ -13,6 +13,7 @@ create table public.profiles (
   avatar_url text,
   top10_shows jsonb not null default '[]',
   top10_episodes jsonb not null default '[]',
+  top10_movies jsonb not null default '[]',
   created_at timestamptz not null default now(),
   constraint username_format check (username ~ '^[A-Za-z0-9_]{3,20}$')
 );
@@ -67,6 +68,23 @@ create table public.watched (
 create index watched_by_show on public.watched (user_id, show_id);
 
 -- ---------------------------------------------------------------------------
+-- movie_tracks: movies on a user's list (TMDB ids; status: want | watched)
+-- ---------------------------------------------------------------------------
+create table public.movie_tracks (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  movie_id integer not null,
+  title text not null,
+  year text,
+  poster text,
+  genres jsonb not null default '[]',
+  runtime integer,
+  status text not null check (status in ('want', 'watched')),
+  added_at timestamptz not null default now(),
+  watched_at timestamptz,
+  primary key (user_id, movie_id)
+);
+
+-- ---------------------------------------------------------------------------
 -- follows
 -- ---------------------------------------------------------------------------
 create table public.follows (
@@ -98,6 +116,7 @@ create index articles_by_time on public.articles (created_at desc);
 alter table public.profiles enable row level security;
 alter table public.tracks enable row level security;
 alter table public.watched enable row level security;
+alter table public.movie_tracks enable row level security;
 alter table public.follows enable row level security;
 alter table public.articles enable row level security;
 
@@ -118,6 +137,12 @@ create policy "watched readable by members"
   on public.watched for select to authenticated using (true);
 create policy "manage own watched"
   on public.watched for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "movie tracks readable by members"
+  on public.movie_tracks for select to authenticated using (true);
+create policy "manage own movie tracks"
+  on public.movie_tracks for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 create policy "follows readable by members"

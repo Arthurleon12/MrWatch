@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { onStoreChange, type StoreName } from './bus'
 import { getLibraryState, hydrateLibrary } from '../store/library'
+import { getMoviesState, hydrateMovies, type MovieStatus, type TrackedMovie } from '../store/movies'
 import { getProfileState, hydrateProfile } from '../store/profile'
 import { getArticlesState, hydrateArticles, type Article } from '../store/articles'
 import { getSession } from '../store/session'
@@ -43,6 +44,7 @@ async function push(store: StoreName) {
   if (!supabase || !session) return
   try {
     if (store === 'library') await pushLibrary(session.user.id)
+    if (store === 'movies') await pushMovies(session.user.id)
     if (store === 'profile') await pushProfile(session.user.id)
     if (store === 'articles') await pushArticles(session.user.id)
   } catch (err) {
@@ -73,17 +75,62 @@ async function pushLibrary(uid: string) {
   if (watchedRows.length) await supabase.from('watched').insert(watchedRows)
 }
 
+// The movies migration (supabase/migrations) may not have run yet on an
+// existing database. Sync must keep working for everything else, so movie
+// pushes fail soft and the profile push retries without the new column.
+let warnedMoviesMigration = false
+function missingMoviesSchema(message: string | undefined): boolean {
+  if (!message || !/movie_tracks|top10_movies/i.test(message)) return false
+  if (!warnedMoviesMigration) {
+    warnedMoviesMigration = true
+    console.warn('[sync] movies not syncing — run supabase/migrations/2026-08-11-movies.sql')
+  }
+  return true
+}
+
+async function pushMovies(uid: string) {
+  if (!supabase) return
+  const { movies } = getMoviesState()
+  const rows = Object.values(movies).map((m) => ({
+    user_id: uid,
+    movie_id: m.id,
+    title: m.title,
+    year: m.year,
+    poster: m.poster,
+    genres: m.genres,
+    runtime: m.runtime,
+    status: m.status,
+    added_at: new Date(m.addedAt).toISOString(),
+    watched_at: m.watchedAt ? new Date(m.watchedAt).toISOString() : null,
+  }))
+  const del = await supabase.from('movie_tracks').delete().eq('user_id', uid)
+  if (del.error) {
+    if (!missingMoviesSchema(del.error.message)) throw new Error(del.error.message)
+    return
+  }
+  if (rows.length) {
+    const ins = await supabase.from('movie_tracks').insert(rows)
+    if (ins.error) throw new Error(ins.error.message)
+  }
+}
+
 async function pushProfile(uid: string) {
   if (!supabase) return
   const p = getProfileState()
-  await supabase.from('profiles').upsert({
+  const payload = {
     id: uid,
     username: p.username,
     bio: p.bio,
     avatar_url: p.avatar,
     top10_shows: p.top10Shows,
     top10_episodes: p.top10Episodes,
-  })
+    top10_movies: p.top10Movies,
+  }
+  const { error } = await supabase.from('profiles').upsert(payload)
+  if (error && missingMoviesSchema(error.message)) {
+    const { top10_movies: _omitted, ...legacy } = payload
+    await supabase.from('profiles').upsert(legacy)
+  }
 }
 
 async function pushArticles(uid: string) {
@@ -110,10 +157,11 @@ async function pushArticles(uid: string) {
 /** On sign-in: cloud wins when it has data; otherwise local seeds the cloud. */
 export async function pullAndHydrate(uid: string) {
   if (!supabase) return
-  const [profileRes, tracksRes, watchedRes, articlesRes] = await Promise.all([
+  const [profileRes, tracksRes, watchedRes, moviesRes, articlesRes] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
     supabase.from('tracks').select('*').eq('user_id', uid),
     supabase.from('watched').select('show_id, episode_id').eq('user_id', uid),
+    supabase.from('movie_tracks').select('*').eq('user_id', uid),
     supabase.from('articles').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
   ])
 
@@ -125,6 +173,7 @@ export async function pullAndHydrate(uid: string) {
       avatar: prof.avatar_url ?? null,
       top10Shows: prof.top10_shows ?? [],
       top10Episodes: prof.top10_episodes ?? [],
+      top10Movies: prof.top10_movies ?? [],
       following: [],
       followers: [],
     })
@@ -151,6 +200,28 @@ export async function pullAndHydrate(uid: string) {
     hydrateLibrary({ shows, watched })
   } else if (Object.keys(getLibraryState().shows).length > 0) {
     await pushLibrary(uid) // first login on a device with history: migrate it up
+  }
+
+  if (moviesRes.error) {
+    missingMoviesSchema(moviesRes.error.message)
+  } else if ((moviesRes.data ?? []).length > 0) {
+    const movies: Record<number, TrackedMovie> = {}
+    for (const m of moviesRes.data!) {
+      movies[m.movie_id] = {
+        id: m.movie_id,
+        title: m.title,
+        year: m.year,
+        poster: m.poster,
+        genres: m.genres ?? [],
+        runtime: m.runtime,
+        status: (m.status as MovieStatus) ?? 'want',
+        addedAt: new Date(m.added_at).getTime(),
+        watchedAt: m.watched_at ? new Date(m.watched_at).getTime() : null,
+      }
+    }
+    hydrateMovies({ movies })
+  } else if (Object.keys(getMoviesState().movies).length > 0) {
+    await pushMovies(uid)
   }
 
   const remoteArticles = articlesRes.data ?? []
