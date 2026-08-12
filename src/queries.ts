@@ -293,6 +293,39 @@ export function useConnections(username: string, kind: 'followers' | 'following'
   })
 }
 
+export interface MyArticleRow {
+  id: string
+  title: string
+  subject: { showName?: string; epCode?: string }
+  createdAt: number
+}
+
+/**
+ * Your posts as the DATABASE has them — the proof they're really stored,
+ * not just sitting in this browser's localStorage.
+ */
+export function useMyArticles(uid: string | undefined) {
+  return useQuery({
+    queryKey: ['my-articles', uid],
+    queryFn: async (): Promise<MyArticleRow[]> => {
+      const { data, error } = await supabase!
+        .from('articles')
+        .select('id, title, subject, created_at')
+        .eq('user_id', uid!)
+        .order('created_at', { ascending: false })
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((a) => ({
+        id: a.id,
+        title: a.title,
+        subject: a.subject ?? {},
+        createdAt: new Date(a.created_at).getTime(),
+      }))
+    },
+    enabled: !!supabase && !!uid,
+    staleTime: 30 * 1000,
+  })
+}
+
 /* --------------------- taste match / MrWatch AI data --------------------- */
 
 /** Bound the TVmaze detail fan-out for genre profiles. */

@@ -13,12 +13,13 @@ import {
   type Top10Episode,
 } from '../store/profile'
 import { useQuery } from '@tanstack/react-query'
-import { useShow } from '../queries'
+import { useArticleLikes, useMyArticles, useShow } from '../queries'
+import { useArticles } from '../store/articles'
 import { backendReady, supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
-import { epCode, hasAired } from '../lib/time'
+import { agoLabel, epCode, hasAired } from '../lib/time'
 import { Poster } from '../components/Poster'
-import { ArrowDownIcon, ArrowUpIcon, GearIcon, PencilIcon, PlusIcon, UserIcon, XIcon } from '../components/icons'
+import { ArrowDownIcon, ArrowUpIcon, GearIcon, HeartIcon, PencilIcon, PlusIcon, UserIcon, XIcon } from '../components/icons'
 
 function move<T>(list: T[], index: number, delta: number): T[] {
   const target = index + delta
@@ -406,6 +407,9 @@ export function ProfilePage() {
         )}
       </section>
 
+      {/* ---- posts ---- */}
+      <MyPostsSection signedIn={signedIn} uid={session?.user.id} />
+
       {/* ---- saved shows ---- */}
       <section className="mt-8">
         <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Saved shows</h2>
@@ -463,6 +467,96 @@ export function ProfilePage() {
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * Your posts, with proof of where they live: rows straight from the
+ * database count as stored; local drafts that haven't synced are flagged.
+ */
+function MyPostsSection({ signedIn, uid }: { signedIn: boolean; uid: string | undefined }) {
+  const localArticles = useArticles()
+  const { data: cloudRows, isLoading } = useMyArticles(signedIn ? uid : undefined)
+  const cloudIds = new Set((cloudRows ?? []).map((a) => a.id))
+  const unsynced = signedIn ? localArticles.filter((a) => !cloudIds.has(a.id)) : []
+
+  const rows = signedIn
+    ? [
+        ...unsynced.map((a) => ({
+          id: a.id,
+          title: a.title,
+          subject: a.subject as { showName?: string; epCode?: string },
+          createdAt: a.createdAt,
+          stored: false,
+        })),
+        ...(cloudRows ?? []).map((a) => ({ ...a, stored: true })),
+      ]
+    : localArticles.map((a) => ({
+        id: a.id,
+        title: a.title,
+        subject: a.subject as { showName?: string; epCode?: string },
+        createdAt: a.createdAt,
+        stored: false,
+      }))
+
+  const { data: likeRows } = useArticleLikes(
+    (cloudRows ?? []).map((a) => a.id),
+    signedIn,
+  )
+  const likeCount = (id: string) => (likeRows ?? []).filter((r) => r.article_id === id).length
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-baseline justify-between">
+        <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">
+          Posts{rows.length > 0 && <span className="ml-2 text-xs font-medium text-ink-faint">{rows.length}</span>}
+        </h2>
+        <Link to="/write" className="text-xs font-medium text-accent">Write</Link>
+      </div>
+
+      <p className="mt-1.5 text-[0.68rem] text-ink-faint">
+        {signedIn
+          ? isLoading
+            ? 'Checking your account storage…'
+            : `${cloudRows?.length ?? 0} stored in your account${unsynced.length > 0 ? ` · ${unsynced.length} on this device, not synced yet` : ''}`
+          : 'On this device only — sign in and they get stored in your account.'}
+      </p>
+
+      {rows.length === 0 && !isLoading && (
+        <p className="mt-2 text-sm text-ink-faint">
+          Nothing posted yet — <Link to="/write" className="text-accent">write your first take</Link>.
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-col gap-2">
+        {rows.map((a) => (
+          <Link key={a.id} to={`/article/${a.id}`} className="rounded-xl bg-surface p-3">
+            <span className="flex items-center gap-2">
+              <span className="min-w-0 flex-1">
+                {a.subject?.showName && (
+                  <span className="font-display text-[0.62rem] font-bold uppercase tracking-wider text-accent">
+                    {a.subject.showName}
+                    {a.subject.epCode ? ` · ${a.subject.epCode}` : ''}
+                  </span>
+                )}
+                <span className="block truncate font-display text-sm font-bold">{a.title}</span>
+                <span className="block text-xs text-ink-faint">{agoLabel(new Date(a.createdAt))}</span>
+              </span>
+              {a.stored ? (
+                <span className="flex flex-none items-center gap-1 text-xs text-ink-faint">
+                  <HeartIcon filled={likeCount(a.id) > 0} className={`h-3.5 w-3.5 ${likeCount(a.id) > 0 ? 'text-accent' : ''}`} />
+                  <span className="tabular-nums">{likeCount(a.id)}</span>
+                </span>
+              ) : (
+                <span className="flex-none rounded-full border border-line px-2 py-0.5 font-display text-[0.6rem] font-bold uppercase tracking-wider text-ink-faint">
+                  not synced
+                </span>
+              )}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   )
 }
 
