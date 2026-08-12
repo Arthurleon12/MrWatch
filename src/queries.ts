@@ -164,11 +164,14 @@ export function useFriendData(username: string, enabled: boolean) {
   return useQuery({
     queryKey: ['friend-data', username.toLowerCase()],
     queryFn: async (): Promise<FriendData | null> => {
-      const { data: prof } = await supabase!
+      // username is citext, so eq is case-insensitive — and unlike ilike it
+      // treats underscores literally instead of as single-char wildcards
+      const { data: prof, error: profError } = await supabase!
         .from('profiles')
         .select('*')
-        .ilike('username', username)
+        .eq('username', username)
         .maybeSingle()
+      if (profError) throw new Error(profError.message)
       if (!prof) return null
 
       const [tracks, watchedRows, movieRows] = await Promise.all([
@@ -176,6 +179,10 @@ export function useFriendData(username: string, enabled: boolean) {
         supabase!.from('watched').select('show_id').eq('user_id', prof.id).limit(20000),
         supabase!.from('movie_tracks').select('*').eq('user_id', prof.id),
       ])
+      // a failed fetch must error (and retry), not get cached as "no data";
+      // movie_tracks is the exception — it may not exist pre-migration
+      if (tracks.error) throw new Error(tracks.error.message)
+      if (watchedRows.error) throw new Error(watchedRows.error.message)
 
       const watchedCounts: Record<number, number> = {}
       for (const row of watchedRows.data ?? []) {

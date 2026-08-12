@@ -46,7 +46,7 @@ function TasteMatchCard({ username }: { username: string }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-display text-sm font-bold">
-          {match ? `${match.percent}% Taste Match` : 'Taste Match'}
+          {match?.hasEnoughData ? `${match.percent}% Taste Match` : 'Taste Match'}
         </span>
         <span className="block truncate text-xs text-ink-faint">
           MrWatch AI — find tonight's watch together
@@ -60,7 +60,7 @@ function TasteMatchCard({ username }: { username: string }) {
 export function UserPage() {
   const { username = '' } = useParams()
   const navigate = useNavigate()
-  const { session } = useSession()
+  const { session, initializing } = useSession()
   const ownName = useProfile().username
   const queryClient = useQueryClient()
   const uid = session?.user.id
@@ -68,12 +68,14 @@ export function UserPage() {
   const { data: person, isLoading } = useQuery({
     queryKey: ['user', username.toLowerCase()],
     queryFn: async (): Promise<RemoteProfile | null> => {
-      // select * so a database that predates newer columns still resolves
-      const { data } = await supabase!
+      // select * so a database that predates newer columns still resolves;
+      // eq on citext = case-insensitive without ilike's wildcard pitfalls
+      const { data, error } = await supabase!
         .from('profiles')
         .select('*')
-        .ilike('username', username)
+        .eq('username', username)
         .maybeSingle()
+      if (error) throw new Error(error.message)
       return data
     },
     enabled: !!supabase && !!session,
@@ -115,6 +117,10 @@ export function UserPage() {
   })
 
   if (!supabase) return <Navigate to="/" replace />
+  if (initializing) {
+    // deep link while the session restores — don't bounce to /auth yet
+    return <div className="px-4 pt-6"><div className="h-40 animate-pulse rounded-xl bg-surface" /></div>
+  }
   if (!session) return <Navigate to="/auth" replace />
   if (username.toLowerCase() === ownName.toLowerCase()) return <Navigate to="/profile" replace />
 

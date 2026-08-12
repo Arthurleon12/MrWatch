@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { startSync, stopSync, pullAndHydrate } from '../lib/sync'
+import { clearLocalData, startSync, stopSync, pullAndHydrate } from '../lib/sync'
 
 /**
  * Auth session state. `profileStatus` tracks whether the signed-in user has
@@ -80,7 +80,8 @@ export function initAuth() {
 export async function markProfileClaimed() {
   set({ profileStatus: 'ready' })
   if (state.session) {
-    await pullAndHydrate(state.session.user.id)
+    // the one moment pre-account on-device history seeds the new account
+    await pullAndHydrate(state.session.user.id, true)
     startSync()
   }
 }
@@ -105,6 +106,7 @@ export async function signInWithEmail(email: string): Promise<string | null> {
 export async function signOut() {
   stopSync()
   await supabase?.auth.signOut()
+  clearLocalData() // the next account on this device starts clean
 }
 
 /** Permanently deletes the auth user; cascades wipe all their rows. */
@@ -114,5 +116,6 @@ export async function deleteAccount(): Promise<string | null> {
   if (error) return error.message
   stopSync()
   await supabase.auth.signOut()
+  clearLocalData()
   return null
 }

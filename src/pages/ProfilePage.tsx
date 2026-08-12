@@ -14,13 +14,11 @@ import {
 } from '../store/profile'
 import { useQuery } from '@tanstack/react-query'
 import { useShow } from '../queries'
-import { hasBuiltInTmdbKey, useSettings, updateSettings } from '../store/settings'
-import { tmdbKeyWorks } from '../api/tmdb'
 import { backendReady, supabase } from '../lib/supabase'
-import { deleteAccount, signOut, useSession } from '../store/session'
+import { useSession } from '../store/session'
 import { epCode, hasAired } from '../lib/time'
 import { Poster } from '../components/Poster'
-import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, UserIcon, XIcon } from '../components/icons'
+import { ArrowDownIcon, ArrowUpIcon, GearIcon, PencilIcon, PlusIcon, UserIcon, XIcon } from '../components/icons'
 
 function move<T>(list: T[], index: number, delta: number): T[] {
   const target = index + delta
@@ -131,6 +129,13 @@ export function ProfilePage() {
           >
             <PencilIcon className="h-3.5 w-3.5" />
           </button>
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            className="ml-auto flex h-9 w-9 flex-none items-center justify-center rounded-full bg-surface text-ink-soft"
+          >
+            <GearIcon className="h-4.5 w-4.5" />
+          </Link>
         </div>
       </div>
 
@@ -392,12 +397,6 @@ export function ProfilePage() {
         )}
       </section>
 
-      {/* ---- connections ---- */}
-      <TmdbConnect />
-
-      {/* ---- account ---- */}
-      {signedIn && <AccountSection email={session?.user.email ?? ''} />}
-
       {/* ---- saved shows ---- */}
       <section className="mt-8">
         <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Saved shows</h2>
@@ -455,122 +454,6 @@ export function ProfilePage() {
         )}
       </section>
     </div>
-  )
-}
-
-/** Signed-in account controls: sign out and (permanent) deletion. */
-function AccountSection({ email }: { email: string }) {
-  const [confirming, setConfirming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  return (
-    <section className="mt-8">
-      <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Account</h2>
-      <div className="mt-3 rounded-xl bg-surface p-3.5">
-        <p className="text-xs text-ink-soft">Signed in as {email || 'your account'} — syncing across devices.</p>
-        <div className="mt-3 flex items-center gap-3">
-          <button
-            onClick={() => void signOut()}
-            className="rounded-full bg-raised px-4 py-2 font-display text-xs font-bold text-ink-soft"
-          >
-            Sign out
-          </button>
-          {!confirming ? (
-            <button onClick={() => setConfirming(true)} className="text-xs font-medium text-red-400">
-              Delete account
-            </button>
-          ) : (
-            <button
-              onClick={async () => {
-                const err = await deleteAccount()
-                if (err) setError(err)
-              }}
-              className="rounded-full bg-red-400/15 px-4 py-2 font-display text-xs font-bold text-red-400"
-            >
-              Permanently delete everything?
-            </button>
-          )}
-        </div>
-        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      </div>
-    </section>
-  )
-}
-
-/** TMDB key entry — unlocks movies (search, tracking, recs) + "fans also watch". */
-function TmdbConnect() {
-  const { tmdbKey } = useSettings()
-  const [draft, setDraft] = useState('')
-  const [status, setStatus] = useState<'idle' | 'checking' | 'bad'>('idle')
-
-  async function connect() {
-    const key = draft.trim()
-    if (!key) return
-    setStatus('checking')
-    if (await tmdbKeyWorks(key)) {
-      updateSettings({ tmdbKey: key })
-      setDraft('')
-      setStatus('idle')
-    } else {
-      setStatus('bad')
-    }
-  }
-
-  return (
-    <section className="mt-8">
-      <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Connections</h2>
-      {tmdbKey ? (
-        <div className="mt-3 flex items-center justify-between rounded-xl bg-surface p-3.5">
-          <div>
-            <p className="font-display text-sm font-bold">TMDB</p>
-            <p className="text-xs text-good">Connected — movies and "fans also watch" are live</p>
-          </div>
-          <button
-            onClick={() => updateSettings({ tmdbKey: '' })}
-            className="text-xs font-medium text-ink-faint"
-          >
-            Disconnect
-          </button>
-        </div>
-      ) : hasBuiltInTmdbKey ? (
-        <div className="mt-3 rounded-xl bg-surface p-3.5">
-          <p className="font-display text-sm font-bold">TMDB</p>
-          <p className="text-xs text-good">Included with MrWatch — movies and "fans also watch" are live</p>
-        </div>
-      ) : (
-        <div className="mt-3 rounded-xl bg-surface p-3.5">
-          <p className="font-display text-sm font-bold">TMDB</p>
-          <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-            Unlocks movies — search, your watchlist, Top 10 — plus "fans of your shows also
-            watch". Create a free API key at themoviedb.org → Settings → API, then paste it here.
-            It's stored on this device only.
-          </p>
-          <div className="mt-2 flex gap-2">
-            <input
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value)
-                setStatus('idle')
-              }}
-              placeholder="TMDB API key"
-              className="min-w-0 flex-1 rounded-lg bg-raised px-3 py-2 text-xs outline-none placeholder:text-ink-faint"
-            />
-            <button
-              onClick={connect}
-              disabled={!draft.trim() || status === 'checking'}
-              className="rounded-full bg-accent px-4 py-2 font-display text-xs font-bold text-bg disabled:opacity-40"
-            >
-              {status === 'checking' ? 'Checking…' : 'Connect'}
-            </button>
-          </div>
-          {status === 'bad' && (
-            <p className="mt-1.5 text-xs text-red-400">
-              TMDB rejected that key — double-check it and try again.
-            </p>
-          )}
-        </div>
-      )}
-    </section>
   )
 }
 

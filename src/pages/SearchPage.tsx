@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useMovieSearch, useSearch } from '../queries'
+import { useMovieGenreMap, useMovieSearch, useSearch } from '../queries'
 import { trackShow, untrackShow, useLibrary } from '../store/library'
 import { removeMovie, saveMovie, useMovies } from '../store/movies'
 import { useTmdbKey } from '../store/settings'
-import { tmdbImage } from '../api/tmdb'
+import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import { Poster } from '../components/Poster'
@@ -41,12 +41,15 @@ export function SearchPage() {
   const moviesEnabled = tmdbKey.length > 0
 
   const { data: people } = useQuery({
-    queryKey: ['people-search', cleanQuery.toLowerCase()],
+    // peopleOnly is part of the key: the two modes fetch different limits
+    queryKey: ['people-search', cleanQuery.toLowerCase(), peopleOnly],
     queryFn: async () => {
+      // escape LIKE wildcards so "the_boss" doesn't match "thexboss"
+      const escaped = cleanQuery.replace(/[\\%_]/g, (c) => `\\${c}`)
       const { data } = await supabase!
         .from('profiles')
         .select('username, avatar_url, bio')
-        .ilike('username', `%${cleanQuery}%`)
+        .ilike('username', `%${escaped}%`)
         .limit(peopleOnly ? 12 : 4)
       return data ?? []
     },
@@ -55,6 +58,12 @@ export function SearchPage() {
   })
 
   const showEmptyHint = !results && !isFetching && !peopleOnly
+
+  // resolve genre_ids → names at save time so quick-added movies carry the
+  // genres that Taste Match and MrWatch AI feed on
+  const { data: genreMap } = useMovieGenreMap(tmdbKey)
+  const movieGenres = (m: TmdbMovie) =>
+    (m.genre_ids ?? []).map((id) => genreMap?.get(id)).filter((g): g is string => !!g)
 
   return (
     <div className="px-4 pt-6">
@@ -201,7 +210,9 @@ export function SearchPage() {
                   </div>
                 </Link>
                 <button
-                  onClick={() => (saved ? removeMovie(movie.id) : saveMovie(movie, 'want'))}
+                  onClick={() =>
+                    saved ? removeMovie(movie.id) : saveMovie(movie, 'want', movieGenres(movie))
+                  }
                   aria-label={saved ? `Remove ${movie.title} from your list` : `Add ${movie.title} to want to watch`}
                   className={`flex h-10 w-10 flex-none items-center justify-center rounded-full transition-colors ${
                     saved

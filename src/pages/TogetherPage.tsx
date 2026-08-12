@@ -31,7 +31,7 @@ import type { TvmShow } from '../types'
 export function TogetherPage() {
   const { username = '' } = useParams()
   const navigate = useNavigate()
-  const { session } = useSession()
+  const { session, initializing } = useSession()
   const me = useProfile()
   const { shows: myShows } = useLibrary()
   const tmdbKey = useTmdbKey()
@@ -58,14 +58,23 @@ export function TogetherPage() {
       retry: 1,
     })),
   })
-  const { data: nowPlaying } = useNowPlaying(tmdbKey)
+  const nowPlayingQuery = useNowPlaying(tmdbKey)
+  const nowPlaying = nowPlayingQuery.data
   const { data: genreMap } = useMovieGenreMap(tmdbKey)
+  const picksLoading =
+    tmdbKey.length > 0 && (nowPlayingQuery.isLoading || recQueries.some((q) => q.isLoading))
 
   const moviePicks = useMemo(() => {
     const a = mine.snapshot
     const b = theirs.snapshot
     if (!b) return []
-    const seenByEither = new Set([...a.watchedMovies, ...b.watchedMovies].map((m) => m.id))
+    // "seen" includes each person's all-time ladder: a ranked favorite was
+    // certainly watched, even if its library status drifted back to 'want'
+    const seenByEither = new Set(
+      [...a.watchedMovies, ...b.watchedMovies, ...a.ladderMovies, ...b.ladderMovies].map(
+        (m) => m.id,
+      ),
+    )
     const wantMine = new Set(a.wantMovies.map((m) => m.id))
     const wantTheirs = new Set(b.wantMovies.map((m) => m.id))
 
@@ -161,6 +170,9 @@ export function TogetherPage() {
 
   /* ------------------------------- guards -------------------------------- */
   if (!supabase) return <Navigate to="/" replace />
+  if (initializing) {
+    return <div className="px-4 pt-6"><div className="h-52 animate-pulse rounded-xl bg-surface" /></div>
+  }
   if (!session) return <Navigate to="/auth" replace />
   if (username.toLowerCase() === me.username.toLowerCase()) return <Navigate to="/profile" replace />
 
@@ -268,7 +280,7 @@ export function TogetherPage() {
               Connect in Profile →
             </Link>
           </div>
-        ) : !ready ? (
+        ) : !ready || picksLoading ? (
           <div className="mt-3 h-40 animate-pulse rounded-xl bg-surface" />
         ) : headline ? (
           <>

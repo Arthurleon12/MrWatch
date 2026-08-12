@@ -2,8 +2,13 @@ import type { TvmScheduleItem, TvmSearchResult, TvmShow } from '../types'
 
 const BASE = 'https://api.tvmaze.com'
 
-async function get<T>(path: string): Promise<T> {
+async function get<T>(path: string, attempt = 0): Promise<T> {
   const res = await fetch(`${BASE}${path}`)
+  // TVmaze rate-limits bursts (~20 req/10s); back off briefly and retry
+  if (res.status === 429 && attempt < 2) {
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+    return get<T>(path, attempt + 1)
+  }
   if (!res.ok) throw new Error(`TVmaze ${res.status} for ${path}`)
   return res.json() as Promise<T>
 }

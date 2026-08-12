@@ -122,20 +122,22 @@ export async function fansAlsoWatch(imdbId: string, key: string, limit = 6): Pro
   if (!tmdbId) return []
 
   const recs = await tmdbGet<TmdbRecsResult>(`/tv/${tmdbId}/recommendations`, key)
-  const top = recs.results.slice(0, limit * 2) // over-fetch; some won't map to TVmaze
 
-  const shows = await Promise.all(
-    top.map(async (rec) => {
-      try {
-        const ext = await tmdbGet<TmdbExternalIds>(`/tv/${rec.id}/external_ids`, key)
-        if (!ext.imdb_id) return null
-        const res = await fetch(`https://api.tvmaze.com/lookup/shows?imdb=${ext.imdb_id}`)
-        if (!res.ok) return null
-        return (await res.json()) as TvmShow
-      } catch {
-        return null
-      }
-    }),
-  )
-  return shows.filter((s): s is TvmShow => s !== null).slice(0, limit)
+  // Sequential on purpose: a parallel burst of TVmaze lookups trips its rate
+  // limit (which then gets cached as an empty rail), and mapping usually
+  // succeeds early so we stop as soon as the rail is full.
+  const shows: TvmShow[] = []
+  for (const rec of recs.results) {
+    if (shows.length >= limit) break
+    try {
+      const ext = await tmdbGet<TmdbExternalIds>(`/tv/${rec.id}/external_ids`, key)
+      if (!ext.imdb_id) continue
+      const res = await fetch(`https://api.tvmaze.com/lookup/shows?imdb=${ext.imdb_id}`)
+      if (!res.ok) continue
+      shows.push((await res.json()) as TvmShow)
+    } catch {
+      // skip this recommendation and keep filling the rail
+    }
+  }
+  return shows
 }

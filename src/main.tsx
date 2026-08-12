@@ -12,6 +12,7 @@ import { MoviePage } from './pages/MoviePage'
 import { TogetherPage } from './pages/TogetherPage'
 import { ForYouPage } from './pages/ForYouPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { SettingsPage } from './pages/SettingsPage'
 import { WritePage } from './pages/WritePage'
 import { ArticlePage } from './pages/ArticlePage'
 import { RankPage } from './pages/RankPage'
@@ -38,6 +39,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/foryou" element={<ForYouPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/write" element={<WritePage />} />
             <Route path="/article/:id" element={<ArticlePage />} />
             <Route path="/rank/movie/:id" element={<RankPage kind="movie" />} />

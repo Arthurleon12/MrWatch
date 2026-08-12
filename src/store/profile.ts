@@ -89,6 +89,11 @@ export function hydrateProfile(next: ProfileState) {
   hydrating = false
 }
 
+/** Back to the on-device defaults (used on sign-out) — never pushes. */
+export function resetProfile() {
+  hydrateProfile({ ...DEFAULT_PROFILE })
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener)
   return () => listeners.delete(listener)

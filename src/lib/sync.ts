@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 import { onStoreChange, type StoreName } from './bus'
 import { getLibraryState, hydrateLibrary } from '../store/library'
 import { getMoviesState, hydrateMovies, type MovieStatus, type TrackedMovie } from '../store/movies'
-import { getProfileState, hydrateProfile } from '../store/profile'
+import { getProfileState, hydrateProfile, resetProfile } from '../store/profile'
 import { getArticlesState, hydrateArticles, type Article } from '../store/articles'
 import { getSession } from '../store/session'
 import type { TrackedShow } from '../types'
@@ -53,6 +53,14 @@ async function push(store: StoreName) {
   }
 }
 
+function throwIfError(res: { error: { message: string } | null }) {
+  if (res.error) throw new Error(res.error.message)
+}
+
+/**
+ * Pushes upsert current rows first and prune stale ones after, so the cloud
+ * copy never passes through an empty window and every failure surfaces.
+ */
 async function pushLibrary(uid: string) {
   if (!supabase) return
   const { shows, watched } = getLibraryState()
@@ -69,10 +77,55 @@ async function pushLibrary(uid: string) {
   const watchedRows = Object.entries(watched).flatMap(([showId, eps]) =>
     eps.map((episodeId) => ({ user_id: uid, show_id: Number(showId), episode_id: episodeId })),
   )
-  await supabase.from('tracks').delete().eq('user_id', uid)
-  if (trackRows.length) await supabase.from('tracks').insert(trackRows)
-  await supabase.from('watched').delete().eq('user_id', uid)
-  if (watchedRows.length) await supabase.from('watched').insert(watchedRows)
+
+  if (trackRows.length) throwIfError(await supabase.from('tracks').upsert(trackRows))
+  throwIfError(
+    trackRows.length
+      ? await supabase
+          .from('tracks')
+          .delete()
+          .eq('user_id', uid)
+          .not('show_id', 'in', `(${trackRows.map((r) => r.show_id).join(',')})`)
+      : await supabase.from('tracks').delete().eq('user_id', uid),
+  )
+
+  if (watchedRows.length) throwIfError(await supabase.from('watched').upsert(watchedRows))
+  if (watchedRows.length === 0) {
+    throwIfError(await supabase.from('watched').delete().eq('user_id', uid))
+  } else if (watchedRows.length <= 400) {
+    throwIfError(
+      await supabase
+        .from('watched')
+        .delete()
+        .eq('user_id', uid)
+        .not('episode_id', 'in', `(${watchedRows.map((r) => r.episode_id).join(',')})`),
+    )
+  } else {
+    // huge histories: one not-in would blow the URL limit — prune per show
+    const byShow = new Map<number, number[]>()
+    for (const r of watchedRows) {
+      const list = byShow.get(r.show_id) ?? []
+      list.push(r.episode_id)
+      byShow.set(r.show_id, list)
+    }
+    throwIfError(
+      await supabase
+        .from('watched')
+        .delete()
+        .eq('user_id', uid)
+        .not('show_id', 'in', `(${[...byShow.keys()].join(',')})`),
+    )
+    for (const [showId, eps] of byShow) {
+      throwIfError(
+        await supabase
+          .from('watched')
+          .delete()
+          .eq('user_id', uid)
+          .eq('show_id', showId)
+          .not('episode_id', 'in', `(${eps.join(',')})`),
+      )
+    }
+  }
 }
 
 // The movies migration (supabase/migrations) may not have run yet on an
@@ -103,15 +156,21 @@ async function pushMovies(uid: string) {
     added_at: new Date(m.addedAt).toISOString(),
     watched_at: m.watchedAt ? new Date(m.watchedAt).toISOString() : null,
   }))
-  const del = await supabase.from('movie_tracks').delete().eq('user_id', uid)
-  if (del.error) {
-    if (!missingMoviesSchema(del.error.message)) throw new Error(del.error.message)
-    return
-  }
   if (rows.length) {
-    const ins = await supabase.from('movie_tracks').insert(rows)
-    if (ins.error) throw new Error(ins.error.message)
+    const up = await supabase.from('movie_tracks').upsert(rows)
+    if (up.error) {
+      if (!missingMoviesSchema(up.error.message)) throw new Error(up.error.message)
+      return
+    }
   }
+  const del = rows.length
+    ? await supabase
+        .from('movie_tracks')
+        .delete()
+        .eq('user_id', uid)
+        .not('movie_id', 'in', `(${rows.map((r) => r.movie_id).join(',')})`)
+    : await supabase.from('movie_tracks').delete().eq('user_id', uid)
+  if (del.error && !missingMoviesSchema(del.error.message)) throw new Error(del.error.message)
 }
 
 async function pushProfile(uid: string) {
@@ -154,8 +213,14 @@ async function pushArticles(uid: string) {
   }
 }
 
-/** On sign-in: cloud wins when it has data; otherwise local seeds the cloud. */
-export async function pullAndHydrate(uid: string) {
+/**
+ * On sign-in the cloud is the source of truth — even when it's empty, so a
+ * deletion on one device doesn't resurrect from another device's stale copy.
+ * Only on the login where the username is first claimed (`seedLocal`) does
+ * pre-account on-device history seed the new account. Failed fetches are
+ * never mistaken for an empty cloud.
+ */
+export async function pullAndHydrate(uid: string, seedLocal = false) {
   if (!supabase) return
   const [profileRes, tracksRes, watchedRes, moviesRes, articlesRes] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
@@ -179,27 +244,33 @@ export async function pullAndHydrate(uid: string) {
     })
   }
 
-  const tracks = tracksRes.data ?? []
-  if (tracks.length > 0) {
-    const shows: Record<number, TrackedShow> = {}
-    for (const t of tracks) {
-      shows[t.show_id] = {
-        id: t.show_id,
-        name: t.name,
-        image: t.image,
-        status: t.status ?? '',
-        network: t.network,
-        premiered: t.premiered,
-        addedAt: new Date(t.added_at).getTime(),
+  if (tracksRes.error || watchedRes.error) {
+    console.warn('[sync] pull library failed', tracksRes.error ?? watchedRes.error)
+  } else {
+    const tracks = tracksRes.data ?? []
+    if (tracks.length > 0) {
+      const shows: Record<number, TrackedShow> = {}
+      for (const t of tracks) {
+        shows[t.show_id] = {
+          id: t.show_id,
+          name: t.name,
+          image: t.image,
+          status: t.status ?? '',
+          network: t.network,
+          premiered: t.premiered,
+          addedAt: new Date(t.added_at).getTime(),
+        }
       }
+      const watched: Record<number, number[]> = {}
+      for (const w of watchedRes.data ?? []) {
+        ;(watched[w.show_id] ??= []).push(w.episode_id)
+      }
+      hydrateLibrary({ shows, watched })
+    } else if (seedLocal && Object.keys(getLibraryState().shows).length > 0) {
+      await pushLibrary(uid) // first claim on a device with history: migrate it up
+    } else {
+      hydrateLibrary({ shows: {}, watched: {} })
     }
-    const watched: Record<number, number[]> = {}
-    for (const w of watchedRes.data ?? []) {
-      ;(watched[w.show_id] ??= []).push(w.episode_id)
-    }
-    hydrateLibrary({ shows, watched })
-  } else if (Object.keys(getLibraryState().shows).length > 0) {
-    await pushLibrary(uid) // first login on a device with history: migrate it up
   }
 
   if (moviesRes.error) {
@@ -220,25 +291,44 @@ export async function pullAndHydrate(uid: string) {
       }
     }
     hydrateMovies({ movies })
-  } else if (Object.keys(getMoviesState().movies).length > 0) {
+  } else if (seedLocal && Object.keys(getMoviesState().movies).length > 0) {
     await pushMovies(uid)
+  } else {
+    hydrateMovies({ movies: {} })
   }
 
-  const remoteArticles = articlesRes.data ?? []
-  if (remoteArticles.length > 0) {
-    hydrateArticles(
-      remoteArticles.map(
-        (a): Article => ({
-          id: a.id,
-          title: a.title,
-          body: a.body,
-          subject: a.subject,
-          author: prof?.username ?? getProfileState().username,
-          createdAt: new Date(a.created_at).getTime(),
-        }),
-      ),
-    )
-  } else if (getArticlesState().length > 0) {
-    await pushArticles(uid)
+  if (articlesRes.error) {
+    console.warn('[sync] pull articles failed', articlesRes.error)
+  } else {
+    const remoteArticles = articlesRes.data ?? []
+    if (remoteArticles.length > 0) {
+      hydrateArticles(
+        remoteArticles.map(
+          (a): Article => ({
+            id: a.id,
+            title: a.title,
+            body: a.body,
+            subject: a.subject,
+            author: prof?.username ?? getProfileState().username,
+            createdAt: new Date(a.created_at).getTime(),
+          }),
+        ),
+      )
+    } else if (seedLocal && getArticlesState().length > 0) {
+      await pushArticles(uid)
+    } else {
+      hydrateArticles([])
+    }
   }
+}
+
+/**
+ * Wipe on-device data. Called on sign-out so the next account on this
+ * device never inherits (or accidentally seeds) the previous user's history.
+ */
+export function clearLocalData() {
+  hydrateLibrary({ shows: {}, watched: {} })
+  hydrateMovies({ movies: {} })
+  hydrateArticles([])
+  resetProfile()
 }

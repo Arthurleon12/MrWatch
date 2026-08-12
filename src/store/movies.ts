@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { emitStoreChange } from '../lib/bus'
+import { getProfileState, setTop10Movies } from './profile'
 import { tmdbImage, type TmdbMovie, type TmdbMovieDetails } from '../api/tmdb'
 
 /**
@@ -69,14 +70,18 @@ export function useMovies(): MoviesState {
   return useSyncExternalStore(subscribe, () => state)
 }
 
-function toTrackedMovie(m: TmdbMovie | TmdbMovieDetails, status: MovieStatus): TrackedMovie {
+function toTrackedMovie(
+  m: TmdbMovie | TmdbMovieDetails,
+  status: MovieStatus,
+  genreNames?: string[],
+): TrackedMovie {
   const details = m as Partial<TmdbMovieDetails>
   return {
     id: m.id,
     title: m.title,
     year: m.release_date?.slice(0, 4) ?? null,
     poster: tmdbImage(m.poster_path),
-    genres: details.genres?.map((g) => g.name) ?? [],
+    genres: genreNames ?? details.genres?.map((g) => g.name) ?? [],
     runtime: details.runtime ?? null,
     status,
     addedAt: Date.now(),
@@ -84,12 +89,25 @@ function toTrackedMovie(m: TmdbMovie | TmdbMovieDetails, status: MovieStatus): T
   }
 }
 
+/** The Top 10 ladder must only hold watched movies — keep it in lockstep. */
+function dropFromLadder(id: number) {
+  const { top10Movies } = getProfileState()
+  if (top10Movies.some((m) => m.id === id)) {
+    setTop10Movies(top10Movies.filter((m) => m.id !== id))
+  }
+}
+
 /**
  * Add or update a movie. Search results carry less metadata than the details
- * call, so an update keeps the richer fields it already has.
+ * call, so an update keeps the richer fields it already has. `genreNames`
+ * lets list-endpoint callers supply genres resolved from genre_ids.
  */
-export function saveMovie(m: TmdbMovie | TmdbMovieDetails, status: MovieStatus) {
-  const fresh = toTrackedMovie(m, status)
+export function saveMovie(
+  m: TmdbMovie | TmdbMovieDetails,
+  status: MovieStatus,
+  genreNames?: string[],
+) {
+  const fresh = toTrackedMovie(m, status, genreNames)
   const existing = state.movies[m.id]
   const entry: TrackedMovie = existing
     ? {
@@ -100,11 +118,13 @@ export function saveMovie(m: TmdbMovie | TmdbMovieDetails, status: MovieStatus) 
         watchedAt: status === 'watched' ? (existing.watchedAt ?? Date.now()) : null,
       }
     : fresh
+  if (status !== 'watched') dropFromLadder(m.id)
   commit({ movies: { ...state.movies, [m.id]: entry } })
 }
 
 export function removeMovie(id: number) {
   const movies = { ...state.movies }
   delete movies[id]
+  dropFromLadder(id)
   commit({ movies })
 }
