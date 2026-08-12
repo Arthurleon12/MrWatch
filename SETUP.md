@@ -75,7 +75,8 @@ run on the TMDB catalog. Two steps:
 
 1. **Get a key**: https://www.themoviedb.org → sign up (free) → Settings → API →
    Create → Developer → fill the form (personal/hobby project) → copy the
-   **API Key** (the short "API Key (v3 auth)" one).
+   **API Key**. Either credential works — the short "API Key (v3 auth)" or the
+   long "API Read Access Token".
 2. **Give it to the app** — either way works, the first is better:
    - **For everyone**: add `VITE_TMDB_API_KEY` with that value in Vercel →
      Settings → Environment Variables, then redeploy. Every user gets movies with

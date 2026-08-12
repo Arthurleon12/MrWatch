@@ -21,8 +21,13 @@ export function tmdbImage(
 }
 
 async function tmdbGet<T>(path: string, key: string): Promise<T> {
+  // TMDB hands out two credential styles; accept whichever the user pasted:
+  // the short v3 "API Key" goes in the query string, the long v4
+  // "API Read Access Token" (a JWT, always starts with "eyJ") is a Bearer.
+  const isBearer = key.startsWith('eyJ')
   const sep = path.includes('?') ? '&' : '?'
-  const res = await fetch(`${BASE}${path}${sep}api_key=${encodeURIComponent(key)}`)
+  const url = isBearer ? `${BASE}${path}` : `${BASE}${path}${sep}api_key=${encodeURIComponent(key)}`
+  const res = await fetch(url, isBearer ? { headers: { Authorization: `Bearer ${key}` } } : undefined)
   if (!res.ok) throw new Error(`TMDB ${res.status} for ${path}`)
   return res.json() as Promise<T>
 }
