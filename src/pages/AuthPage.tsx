@@ -5,8 +5,13 @@ import {
   markProfileClaimed,
   signInWithEmail,
   signInWithProvider,
+  verifyEmailCode,
   useSession,
 } from '../store/session'
+
+// Apple stays hidden until the provider is configured in Supabase — a live
+// button that dead-ends on an error page is worse than no button.
+const APPLE_LOGIN_READY = ((import.meta.env.VITE_APPLE_LOGIN as string | undefined) ?? '') === '1'
 import { getProfileState, updateProfile, validateUsername } from '../store/profile'
 import { TvIcon } from '../components/icons'
 
@@ -40,6 +45,8 @@ export function AuthPage() {
 function SignIn() {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
+  const [code, setCode] = useState('')
+  const [checking, setChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function sendLink() {
@@ -47,6 +54,15 @@ function SignIn() {
     const err = await signInWithEmail(email.trim())
     if (err) setError(err)
     else setSent(true)
+  }
+
+  async function submitCode() {
+    setChecking(true)
+    setError(null)
+    const err = await verifyEmailCode(email.trim(), code)
+    setChecking(false)
+    if (err) setError(err.includes('expired') || err.includes('invalid') ? 'That code didn’t match — check the email and try again.' : err)
+    // success: the auth listener takes over and this screen navigates away
   }
 
   return (
@@ -66,21 +82,43 @@ function SignIn() {
         >
           Continue with Google
         </button>
-        <button
-          onClick={() => signInWithProvider('apple')}
-          className="rounded-full bg-ink py-3 font-display text-sm font-bold text-bg"
-        >
-          Continue with Apple
-        </button>
+        {APPLE_LOGIN_READY && (
+          <button
+            onClick={() => signInWithProvider('apple')}
+            className="rounded-full bg-ink py-3 font-display text-sm font-bold text-bg"
+          >
+            Continue with Apple
+          </button>
+        )}
 
         <div className="my-2 flex items-center gap-3 text-[0.65rem] uppercase tracking-widest text-ink-faint">
           <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
         </div>
 
         {sent ? (
-          <p className="text-center text-sm text-ink-soft">
-            Check your email — we sent you a sign-in link.
-          </p>
+          <div className="flex flex-col gap-2">
+            <p className="text-center text-sm text-ink-soft">
+              Check your email — tap the link, or type the code from the email here (best when
+              MrWatch is on your home screen):
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="6-digit code"
+                className="min-w-0 flex-1 rounded-full bg-surface px-4 py-3 text-center tracking-[0.3em] outline-none placeholder:tracking-normal placeholder:text-ink-faint"
+              />
+              <button
+                onClick={submitCode}
+                disabled={code.trim().length < 6 || checking}
+                className="rounded-full bg-accent px-5 font-display text-sm font-bold text-bg disabled:opacity-40"
+              >
+                {checking ? '…' : 'Sign in'}
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="flex gap-2">
             <input
@@ -160,7 +198,8 @@ function ClaimUsername() {
             setError(null)
           }}
           autoFocus
-          className="min-w-0 flex-1 bg-transparent py-3 text-sm outline-none"
+          placeholder="yourname"
+          className="min-w-0 flex-1 bg-transparent py-3 outline-none placeholder:text-ink-faint"
         />
       </div>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}

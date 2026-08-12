@@ -18,6 +18,7 @@ import { ArticlePage } from './pages/ArticlePage'
 import { RankPage } from './pages/RankPage'
 import { AuthPage } from './pages/AuthPage'
 import { UserPage } from './pages/UserPage'
+import { ErrorBoundary, NotFoundPage, ScrollToTop } from './components/AppShell'
 import { initAuth } from './store/session'
 
 initAuth()
@@ -32,6 +33,8 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <ErrorBoundary>
+        <ScrollToTop />
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<UpNextPage />} />
@@ -49,8 +52,10 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/together/:username" element={<TogetherPage />} />
             <Route path="/show/:id" element={<ShowPage />} />
             <Route path="/movie/:id" element={<MoviePage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
+        </ErrorBoundary>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

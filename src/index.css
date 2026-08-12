@@ -25,6 +25,15 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  /* installed (standalone) mode paints edge-to-edge — keep content below the notch */
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* iOS zooms the page when a focused input is under 16px — never go below */
+input,
+textarea,
+select {
+  font-size: max(1rem, 1em);
 }
 
 /* keep content clear of the iPhone home indicator / notch */
@@ -33,4 +42,8 @@ body {
 }
 .tabbar-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+/* sticky headers must stick below the notch, not under it */
+.safe-sticky-top {
+  top: env(safe-area-inset-top, 0px);
 }

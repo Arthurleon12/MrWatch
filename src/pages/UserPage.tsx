@@ -65,7 +65,7 @@ export function UserPage() {
   const queryClient = useQueryClient()
   const uid = session?.user.id
 
-  const { data: person, isLoading } = useQuery({
+  const { data: person, isLoading, isError, refetch } = useQuery({
     queryKey: ['user', username.toLowerCase()],
     queryFn: async (): Promise<RemoteProfile | null> => {
       // select * so a database that predates newer columns still resolves;
@@ -126,6 +126,20 @@ export function UserPage() {
 
   if (isLoading) {
     return <div className="px-4 pt-6"><div className="h-40 animate-pulse rounded-xl bg-surface" /></div>
+  }
+  if (isError) {
+    // a failed fetch is not a missing person — say so, offer a retry
+    return (
+      <div className="px-4 pt-6">
+        <p className="text-sm text-ink-soft">Couldn't load this profile — check your connection.</p>
+        <button
+          onClick={() => void refetch()}
+          className="mt-3 rounded-full bg-accent px-5 py-2 font-display text-xs font-bold text-bg"
+        >
+          Retry
+        </button>
+      </div>
+    )
   }
   if (!person) {
     return (

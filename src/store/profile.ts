@@ -47,7 +47,7 @@ export interface ProfileState {
 const STORAGE_KEY = 'mrwatch:profile:v1'
 
 const DEFAULT_PROFILE: ProfileState = {
-  username: 'Arthur',
+  username: '', // no identity until the user claims one — shown as "@you"
   bio: '',
   avatar: null,
   top10Shows: [],

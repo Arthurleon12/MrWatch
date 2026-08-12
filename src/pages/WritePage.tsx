@@ -33,7 +33,7 @@ export function WritePage() {
     const id = addArticle({
       title: title.trim(),
       body: body.trim(),
-      author: profile.username,
+      author: profile.username || 'you',
       subject: {
         showId: selected.id,
         showName: selected.name,

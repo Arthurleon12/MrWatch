@@ -47,6 +47,27 @@ export function SettingsPage() {
           </div>
         )}
       </section>
+
+      {/* required data attributions — see TMDB API terms and TVmaze (CC BY-SA) */}
+      <section className="mt-8">
+        <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">About</h2>
+        <div className="mt-3 rounded-xl bg-surface p-3.5 text-xs leading-relaxed text-ink-soft">
+          <p>
+            TV data by{' '}
+            <a href="https://www.tvmaze.com" target="_blank" rel="noreferrer" className="font-medium text-accent">
+              TVmaze
+            </a>{' '}
+            (CC BY-SA).
+          </p>
+          <p className="mt-1.5">
+            This product uses the{' '}
+            <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer" className="font-medium text-accent">
+              TMDB
+            </a>{' '}
+            API but is not endorsed or certified by TMDB.
+          </p>
+        </div>
+      </section>
     </div>
   )
 }

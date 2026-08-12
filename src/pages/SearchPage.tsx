@@ -58,6 +58,13 @@ export function SearchPage() {
   })
 
   const showEmptyHint = !results && !isFetching && !peopleOnly
+  const nothingFound =
+    !peopleOnly &&
+    !isFetching &&
+    cleanQuery.length >= 2 &&
+    results?.length === 0 &&
+    (movieResults?.length ?? 0) === 0 &&
+    (people?.length ?? 0) === 0
 
   // resolve genre_ids → names at save time so quick-added movies carry the
   // genres that Taste Match and MrWatch AI feed on
@@ -69,7 +76,7 @@ export function SearchPage() {
     <div className="px-4 pt-6">
       <h1 className="font-display text-2xl font-bold tracking-tight">Search</h1>
 
-      <div className="sticky top-0 z-10 -mx-4 mt-3 bg-bg px-4 py-2">
+      <div className="safe-sticky-top sticky z-10 -mx-4 mt-3 bg-bg px-4 py-2">
         <div className="flex items-center gap-2.5 rounded-xl bg-surface px-3.5">
           <SearchIcon className="h-4 w-4 flex-none text-ink-faint" />
           <input
@@ -128,6 +135,16 @@ export function SearchPage() {
             </Link>
           ))}
         </div>
+      )}
+
+      {!peopleOnly && isFetching && (results?.length ?? 0) === 0 && (
+        <p className="mt-8 text-center text-sm text-ink-faint">Searching…</p>
+      )}
+
+      {nothingFound && (
+        <p className="mt-8 text-center text-sm text-ink-faint">
+          Nothing found for “{cleanQuery}” — check the spelling or try another title.
+        </p>
       )}
 
       {peopleOnly && cleanQuery.length >= 2 && people?.length === 0 && (

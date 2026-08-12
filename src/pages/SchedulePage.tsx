@@ -23,6 +23,7 @@ export function SchedulePage() {
   const upcoming: Upcoming[] = []
   const waitingForDate: TvmShow[] = []
   const isLoading = queries.some((q) => q.isLoading)
+  const errored = queries.filter((q) => q.isError)
 
   for (const q of queries) {
     if (!q.data) continue
@@ -54,7 +55,19 @@ export function SchedulePage() {
 
       {isLoading && <div className="mt-4 h-24 animate-pulse rounded-xl bg-surface" />}
 
-      {!isLoading && upcoming.length === 0 && trackedIds.length > 0 && (
+      {errored.length > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3">
+          <p className="text-xs text-ink-soft">Some shows couldn't load — the calendar may be incomplete.</p>
+          <button
+            onClick={() => errored.forEach((q) => void q.refetch())}
+            className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!isLoading && errored.length === 0 && upcoming.length === 0 && trackedIds.length > 0 && (
         <p className="mt-6 text-sm text-ink-soft">
           Nothing on the calendar for the next {HORIZON_DAYS} days.
         </p>

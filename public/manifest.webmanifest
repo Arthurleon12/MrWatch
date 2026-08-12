@@ -1,12 +1,17 @@
 {
+  "id": "mrwatch",
   "name": "MrWatch",
   "short_name": "MrWatch",
-  "description": "Track the shows you watch and never miss an episode.",
+  "description": "Track the shows and movies you watch — and find tonight's pick with your friends.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#101418",
   "theme_color": "#101418",
   "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

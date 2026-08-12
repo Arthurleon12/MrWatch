@@ -117,7 +117,7 @@ export function ProfilePage() {
         />
 
         <div className="flex min-w-0 flex-1 items-center gap-2 pt-1">
-          <h1 className="truncate font-display text-xl font-bold">@{profile.username}</h1>
+          <h1 className="truncate font-display text-xl font-bold">@{profile.username || 'you'}</h1>
           <button
             onClick={() => {
               setNameDraft(profile.username)

@@ -82,6 +82,7 @@ export function ForYouPage() {
   const windowQueries = useScheduleWindow()
 
   const isLoading = windowQueries.some((q) => q.isLoading)
+  const windowErrored = windowQueries.filter((q) => q.isError)
 
   /** Distinct shows from the release window — the candidate pool. */
   const candidates = useMemo(() => {
@@ -277,7 +278,18 @@ export function ForYouPage() {
 
         {isLoading && <div className="mt-3 h-40 animate-pulse rounded-xl bg-surface" />}
 
-        {!isLoading && topPicks.length === 0 && (
+        {!isLoading && topPicks.length === 0 && windowErrored.length > 0 && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3">
+            <p className="text-xs text-ink-soft">Couldn't load this week's releases — check your connection.</p>
+            <button
+              onClick={() => windowErrored.forEach((q) => void q.refetch())}
+              className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!isLoading && topPicks.length === 0 && windowErrored.length === 0 && (
           <p className="mt-2 text-sm text-ink-faint">Nothing in this lens right now.</p>
         )}
 

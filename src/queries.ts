@@ -271,5 +271,12 @@ export function useFriendTasteSnapshot(username: string, enabled: boolean) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [friend.data, detailQueries.map((q) => q.dataUpdatedAt).join(',')])
 
-  return { friend: friend.data ?? null, isLoading: friend.isLoading, snapshot, ready }
+  return {
+    friend: friend.data ?? null,
+    isLoading: friend.isLoading,
+    isError: friend.isError,
+    refetch: friend.refetch,
+    snapshot,
+    ready,
+  }
 }

@@ -28,6 +28,7 @@ export function UpNextPage() {
   const queue: QueueEntry[] = []
   const caughtUp: TvmShow[] = []
   let loadingCount = 0
+  const errored = queries.filter((q) => q.isError)
 
   for (const q of queries) {
     if (q.isLoading) {
@@ -56,6 +57,21 @@ export function UpNextPage() {
   return (
     <div className="px-4 pt-6">
       <h1 className="font-display text-2xl font-bold tracking-tight">Up Next</h1>
+
+      {errored.length > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3">
+          <p className="text-xs text-ink-soft">
+            {errored.length === queries.length ? 'Your shows' : `${errored.length} of your shows`}{' '}
+            couldn't load — check your connection.
+          </p>
+          <button
+            onClick={() => errored.forEach((q) => void q.refetch())}
+            className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {trackedIds.length === 0 && (
         <div className="mt-16 flex flex-col items-center gap-4 text-center">

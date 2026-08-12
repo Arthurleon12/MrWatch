@@ -103,6 +103,16 @@ export async function signInWithEmail(email: string): Promise<string | null> {
   return error ? error.message : null
 }
 
+/**
+ * Installed-app path: the magic link would open in the browser, not the
+ * home-screen app — typing the emailed code signs in without leaving it.
+ */
+export async function verifyEmailCode(email: string, code: string): Promise<string | null> {
+  if (!supabase) return 'Backend not configured.'
+  const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: 'email' })
+  return error ? error.message : null
+}
+
 export async function signOut() {
   stopSync()
   await supabase?.auth.signOut()

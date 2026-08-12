@@ -45,10 +45,18 @@ email links work today**; the Apple button starts working the moment you configu
 4. Supabase → Authentication → Providers → Apple → enable, fill in Services ID, Team ID,
    Key ID, and the .p8 contents.
 
-## 4. Email magic links — 0 min
+## 4. Email sign-in — ~15 min (two important gotchas)
 
-Already on by default in Supabase (the built-in email service, fine for friends & family
-volume). Later, plug in a real SMTP sender under Authentication → Emails.
+Magic links work out of the box, BUT:
+
+1. **The built-in Supabase email sender is rate-limited to ~2–4 auth emails per hour
+   for the whole project** — if three friends sign up the same evening, the later ones
+   get nothing. Fix before invite night: create a free Resend (or Postmark) account,
+   then Supabase → Authentication → Emails → SMTP settings → plug it in.
+2. **The app supports typing a 6-digit code** (needed when MrWatch is installed on the
+   home screen, where the emailed link would open in the browser instead). For the code
+   to appear in the email: Supabase → Authentication → Emails → "Magic Link" template →
+   add a line like `Your code: {{ .Token }}` next to the link. One-time change.
 
 ## 5. Auth URLs — 2 min (easy to forget!)
 
