@@ -139,20 +139,29 @@ export function ProfilePage() {
         </div>
       </div>
 
-      {/* ---- stats ---- */}
+      {/* ---- stats (follower tiles open the lists) ---- */}
       <div className="mt-5 grid grid-cols-5 rounded-xl bg-surface py-3 text-center">
-        {[
-          [tracked.length, 'shows'],
-          [episodesWatched, 'episodes'],
-          [moviesWatched.length, 'movies'],
-          [signedIn ? (followCounts?.followers ?? '…') : 0, 'followers'],
-          [signedIn ? (followCounts?.following ?? '…') : 0, 'following'],
-        ].map(([n, label]) => (
-          <div key={label as string}>
-            <p className="font-display text-lg font-bold tabular-nums">{n}</p>
-            <p className="text-[0.6rem] uppercase tracking-wider text-ink-faint">{label}</p>
-          </div>
-        ))}
+        {(
+          [
+            [tracked.length, 'shows', null],
+            [episodesWatched, 'episodes', null],
+            [moviesWatched.length, 'movies', null],
+            [signedIn ? (followCounts?.followers ?? '…') : 0, 'followers', signedIn ? `/friends/${profile.username}/followers` : null],
+            [signedIn ? (followCounts?.following ?? '…') : 0, 'following', signedIn ? `/friends/${profile.username}/following` : null],
+          ] as [number | string, string, string | null][]
+        ).map(([n, label, to]) => {
+          const cell = (
+            <>
+              <p className="font-display text-lg font-bold tabular-nums">{n}</p>
+              <p className="text-[0.6rem] uppercase tracking-wider text-ink-faint">{label}</p>
+            </>
+          )
+          return to ? (
+            <Link key={label} to={to}>{cell}</Link>
+          ) : (
+            <div key={label}>{cell}</div>
+          )
+        })}
       </div>
       {!signedIn && (
         <p className="mt-2 text-center text-[0.68rem] text-ink-faint">

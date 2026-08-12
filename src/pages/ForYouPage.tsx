@@ -9,18 +9,21 @@ import { useTmdbKey } from '../store/settings'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import {
+  useArticleLikes,
   useFansAlsoWatch,
   useMovieRecs,
   useNowPlaying,
   useScheduleWindow,
   useTrackedShowDetails,
+  useUnreadCount,
 } from '../queries'
+import { LikeButton } from '../components/LikeButton'
 import { stripHtml } from '../api/tvmaze'
 import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { buildTasteProfile, rankCandidates } from '../lib/recommend'
 import { agoLabel } from '../lib/time'
 import { Poster } from '../components/Poster'
-import { PencilIcon } from '../components/icons'
+import { BellIcon, PencilIcon } from '../components/icons'
 import type { TvmShow } from '../types'
 
 type Lens = 'all' | 'shows' | 'anime'
@@ -76,6 +79,17 @@ export function ForYouPage() {
 
   // signed in: everyone's articles (friends & family feed); local mode: your own
   const articles: FeedArticle[] = signedIn && communityArticles ? communityArticles : localArticles
+
+  const uid = session?.user.id
+  const { data: unread } = useUnreadCount(signedIn ? uid : undefined)
+  const { data: likeRows } = useArticleLikes(
+    articles.map((a) => a.id),
+    signedIn,
+  )
+  const likesFor = (articleId: string) => {
+    const rows = (likeRows ?? []).filter((r) => r.article_id === articleId)
+    return { count: rows.length, liked: rows.some((r) => r.user_id === uid) }
+  }
 
   const trackedIdList = Object.keys(tracked).map(Number)
   const trackedDetails = useTrackedShowDetails(trackedIdList)
@@ -147,15 +161,31 @@ export function ForYouPage() {
 
   return (
     <div className="px-4 pt-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h1 className="font-display text-2xl font-bold tracking-tight">For You</h1>
-        <Link
-          to="/write"
-          className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-2 font-display text-xs font-bold text-bg"
-        >
-          <PencilIcon className="h-3.5 w-3.5" />
-          Write
-        </Link>
+        <div className="flex items-center gap-2">
+          {signedIn && (
+            <Link
+              to="/notifications"
+              aria-label={`Notifications${unread ? ` — ${unread} unread` : ''}`}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+            >
+              <BellIcon className="h-4.5 w-4.5" />
+              {(unread ?? 0) > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 font-display text-[0.6rem] font-bold text-bg tabular-nums">
+                  {unread! > 9 ? '9+' : unread}
+                </span>
+              )}
+            </Link>
+          )}
+          <Link
+            to="/write"
+            className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-2 font-display text-xs font-bold text-bg"
+          >
+            <PencilIcon className="h-3.5 w-3.5" />
+            Write
+          </Link>
+        </div>
       </div>
 
       {/* lens chips */}
@@ -221,6 +251,11 @@ export function ForYouPage() {
                 <span className="mt-2 block text-sm leading-snug text-ink-soft">
                   {a.body.length > 140 ? `${a.body.slice(0, 140).trimEnd()}…` : a.body}
                 </span>
+                {signedIn && uid && (
+                  <span className="mt-2.5 flex items-center">
+                    <LikeButton articleId={a.id} uid={uid} {...likesFor(a.id)} />
+                  </span>
+                )}
               </Link>
             ))}
           </div>

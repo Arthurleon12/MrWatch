@@ -18,6 +18,8 @@ import { ArticlePage } from './pages/ArticlePage'
 import { RankPage } from './pages/RankPage'
 import { AuthPage } from './pages/AuthPage'
 import { UserPage } from './pages/UserPage'
+import { NotificationsPage } from './pages/NotificationsPage'
+import { FriendsPage } from './pages/FriendsPage'
 import { ErrorBoundary, NotFoundPage, ScrollToTop } from './components/AppShell'
 import { initAuth } from './store/session'
 
@@ -50,6 +52,9 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/u/:username" element={<UserPage />} />
             <Route path="/together/:username" element={<TogetherPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/friends/:username/followers" element={<FriendsPage kind="followers" />} />
+            <Route path="/friends/:username/following" element={<FriendsPage kind="following" />} />
             <Route path="/show/:id" element={<ShowPage />} />
             <Route path="/movie/:id" element={<MoviePage />} />
             <Route path="*" element={<NotFoundPage />} />

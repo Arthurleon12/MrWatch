@@ -111,6 +111,23 @@ export function BookmarkIcon({ className }: IconProps) {
   )
 }
 
+export function HeartIcon({ className, filled = false }: IconProps & { filled?: boolean }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20.5C7.5 17.6 3.5 14 3.5 9.9 3.5 7 5.7 4.8 8.4 4.8c1.5 0 2.8.7 3.6 1.8.8-1.1 2.1-1.8 3.6-1.8 2.7 0 4.9 2.2 4.9 5.1 0 4.1-4 7.7-8.5 10.6z" />
+    </svg>
+  )
+}
+
+export function BellIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 8.5a6 6 0 0 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5" />
+      <path d="M10 19.5a2.2 2.2 0 0 0 4 0" />
+    </svg>
+  )
+}
+
 export function HeartsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

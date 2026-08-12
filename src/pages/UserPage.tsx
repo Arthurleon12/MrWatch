@@ -185,17 +185,26 @@ export function UserPage() {
       </div>
 
       <div className="mt-4 grid grid-cols-4 rounded-xl bg-surface py-3 text-center">
-        {[
-          [extras?.tracks.length ?? '—', 'shows'],
-          [extras ? extras.movies.filter((m) => m.status === 'watched').length : '—', 'movies'],
-          [extras?.followers ?? '—', 'followers'],
-          [extras?.following ?? '—', 'following'],
-        ].map(([n, label]) => (
-          <div key={label as string}>
-            <p className="font-display text-lg font-bold tabular-nums">{n}</p>
-            <p className="text-[0.65rem] uppercase tracking-wider text-ink-faint">{label}</p>
-          </div>
-        ))}
+        {(
+          [
+            [extras?.tracks.length ?? '—', 'shows', null],
+            [extras ? extras.movies.filter((m) => m.status === 'watched').length : '—', 'movies', null],
+            [extras?.followers ?? '—', 'followers', `/friends/${person.username}/followers`],
+            [extras?.following ?? '—', 'following', `/friends/${person.username}/following`],
+          ] as [number | string, string, string | null][]
+        ).map(([n, label, to]) => {
+          const cell = (
+            <>
+              <p className="font-display text-lg font-bold tabular-nums">{n}</p>
+              <p className="text-[0.65rem] uppercase tracking-wider text-ink-faint">{label}</p>
+            </>
+          )
+          return to ? (
+            <Link key={label} to={to}>{cell}</Link>
+          ) : (
+            <div key={label}>{cell}</div>
+          )
+        })}
       </div>
 
       <TasteMatchCard username={person.username} />

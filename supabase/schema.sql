@@ -110,6 +110,78 @@ create table public.articles (
 create index articles_by_time on public.articles (created_at desc);
 
 -- ---------------------------------------------------------------------------
+-- likes: hearts on articles
+-- ---------------------------------------------------------------------------
+create table public.likes (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  article_id uuid not null references public.articles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, article_id)
+);
+create index likes_by_article on public.likes (article_id);
+
+-- ---------------------------------------------------------------------------
+-- notifications: written by database triggers only (follow / like)
+-- ---------------------------------------------------------------------------
+create table public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references public.profiles (id) on delete cascade,
+  actor_id uuid not null references public.profiles (id) on delete cascade,
+  type text not null check (type in ('follow', 'like')),
+  payload jsonb not null default '{}',
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index notifications_by_recipient
+  on public.notifications (recipient_id, created_at desc);
+
+create or replace function public.notify_on_follow()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.notifications (recipient_id, actor_id, type)
+  values (new.followee_id, new.follower_id, 'follow');
+  return new;
+end
+$$;
+
+create trigger notify_follow
+  after insert on public.follows
+  for each row execute function public.notify_on_follow();
+
+create or replace function public.notify_on_like()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  article_owner uuid;
+  article_title text;
+begin
+  select user_id, title into article_owner, article_title
+    from public.articles where id = new.article_id;
+  if article_owner is not null and article_owner <> new.user_id then
+    insert into public.notifications (recipient_id, actor_id, type, payload)
+    values (
+      article_owner,
+      new.user_id,
+      'like',
+      jsonb_build_object('articleId', new.article_id, 'title', article_title)
+    );
+  end if;
+  return new;
+end
+$$;
+
+create trigger notify_like
+  after insert on public.likes
+  for each row execute function public.notify_on_like();
+
+-- ---------------------------------------------------------------------------
 -- Row Level Security: everyone signed-in can read (it's a social app);
 -- only the owner can write their own rows.
 -- ---------------------------------------------------------------------------
@@ -119,6 +191,8 @@ alter table public.watched enable row level security;
 alter table public.movie_tracks enable row level security;
 alter table public.follows enable row level security;
 alter table public.articles enable row level security;
+alter table public.likes enable row level security;
+alter table public.notifications enable row level security;
 
 create policy "profiles are readable by members"
   on public.profiles for select to authenticated using (true);
@@ -157,6 +231,21 @@ create policy "articles readable by members"
 create policy "manage own articles"
   on public.articles for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "likes readable by members"
+  on public.likes for select to authenticated using (true);
+create policy "like as yourself"
+  on public.likes for insert to authenticated with check (user_id = auth.uid());
+create policy "unlike as yourself"
+  on public.likes for delete to authenticated using (user_id = auth.uid());
+
+create policy "own notifications readable"
+  on public.notifications for select to authenticated using (recipient_id = auth.uid());
+create policy "mark own notifications read"
+  on public.notifications for update to authenticated
+  using (recipient_id = auth.uid()) with check (recipient_id = auth.uid());
+create policy "clear own notifications"
+  on public.notifications for delete to authenticated using (recipient_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
 -- Account deletion (App Store requires in-app deletion; good practice anyway)

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getShowWithEpisodes, getTodaySchedule, getTodayWebSchedule, isoDate, searchShows } from './api/tvmaze'
 import {
   fansAlsoWatch,
@@ -140,6 +140,156 @@ export function useMovieGenreMap(tmdbKey: string) {
     queryFn: () => getMovieGenreMap(tmdbKey),
     enabled: tmdbKey.length > 0,
     staleTime: Infinity,
+  })
+}
+
+/* ------------------------- social: likes + bells ------------------------- */
+
+export interface LikeRow {
+  article_id: string
+  user_id: string
+  username: string
+}
+
+/** All likes for a set of articles in one query — cards derive count + mine. */
+export function useArticleLikes(articleIds: string[], enabled: boolean) {
+  const key = [...articleIds].sort().join(',')
+  return useQuery({
+    queryKey: ['likes', key],
+    queryFn: async (): Promise<LikeRow[]> => {
+      const { data, error } = await supabase!
+        .from('likes')
+        .select('article_id, user_id, profiles!likes_user_id_fkey(username)')
+        .in('article_id', articleIds)
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((r) => ({
+        article_id: r.article_id,
+        user_id: r.user_id,
+        username: (r.profiles as unknown as { username: string })?.username ?? 'someone',
+      }))
+    },
+    enabled: enabled && !!supabase && articleIds.length > 0,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useLikeMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ articleId, like, uid }: { articleId: string; like: boolean; uid: string }) => {
+      if (like) {
+        const { error } = await supabase!.from('likes').insert({ user_id: uid, article_id: articleId })
+        // double-tap race: the row already existing is a success, not a failure
+        if (error && error.code !== '23505') throw new Error(error.message)
+      } else {
+        const { error } = await supabase!
+          .from('likes')
+          .delete()
+          .eq('user_id', uid)
+          .eq('article_id', articleId)
+        if (error) throw new Error(error.message)
+      }
+    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['likes'] }),
+  })
+}
+
+export interface NotificationRow {
+  id: string
+  type: 'follow' | 'like'
+  payload: { articleId?: string; title?: string }
+  read: boolean
+  createdAt: number
+  actor: { username: string; avatarUrl: string | null }
+}
+
+export function useNotifications(uid: string | undefined) {
+  return useQuery({
+    queryKey: ['notifications', uid],
+    queryFn: async (): Promise<NotificationRow[]> => {
+      const { data, error } = await supabase!
+        .from('notifications')
+        .select('id, type, payload, read, created_at, profiles!notifications_actor_id_fkey(username, avatar_url)')
+        .eq('recipient_id', uid!)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((n) => {
+        const actor = n.profiles as unknown as { username: string; avatar_url: string | null } | null
+        return {
+          id: n.id,
+          type: n.type as 'follow' | 'like',
+          payload: n.payload ?? {},
+          read: n.read,
+          createdAt: new Date(n.created_at).getTime(),
+          actor: { username: actor?.username ?? 'someone', avatarUrl: actor?.avatar_url ?? null },
+        }
+      })
+    },
+    enabled: !!supabase && !!uid,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useUnreadCount(uid: string | undefined) {
+  return useQuery({
+    queryKey: ['notif-unread', uid],
+    queryFn: async (): Promise<number> => {
+      const { count, error } = await supabase!
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('recipient_id', uid!)
+        .eq('read', false)
+      if (error) throw new Error(error.message)
+      return count ?? 0
+    },
+    enabled: !!supabase && !!uid,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+  })
+}
+
+export interface ConnectionRow {
+  username: string
+  avatarUrl: string | null
+  bio: string
+}
+
+/** Who follows @username, or who they follow. */
+export function useConnections(username: string, kind: 'followers' | 'following', enabled: boolean) {
+  return useQuery({
+    queryKey: ['connections', username.toLowerCase(), kind],
+    queryFn: async (): Promise<{ owner: string; people: ConnectionRow[] } | null> => {
+      const { data: prof, error: profError } = await supabase!
+        .from('profiles')
+        .select('id, username')
+        .eq('username', username)
+        .maybeSingle()
+      if (profError) throw new Error(profError.message)
+      if (!prof) return null
+
+      const query =
+        kind === 'followers'
+          ? supabase!
+              .from('follows')
+              .select('person:profiles!follows_follower_id_fkey(username, avatar_url, bio)')
+              .eq('followee_id', prof.id)
+          : supabase!
+              .from('follows')
+              .select('person:profiles!follows_followee_id_fkey(username, avatar_url, bio)')
+              .eq('follower_id', prof.id)
+      const { data, error } = await query.order('created_at', { ascending: false })
+      if (error) throw new Error(error.message)
+      return {
+        owner: prof.username,
+        people: (data ?? []).map((r) => {
+          const p = r.person as unknown as { username: string; avatar_url: string | null; bio: string }
+          return { username: p.username, avatarUrl: p.avatar_url, bio: p.bio ?? '' }
+        }),
+      }
+    },
+    enabled: enabled && !!supabase && username.length > 0,
+    staleTime: 60 * 1000,
   })
 }
 

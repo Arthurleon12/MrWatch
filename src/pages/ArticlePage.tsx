@@ -3,8 +3,10 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteArticle, useArticles, type Article } from '../store/articles'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
+import { useArticleLikes } from '../queries'
 import { agoLabel } from '../lib/time'
 import { Poster } from '../components/Poster'
+import { LikeButton } from '../components/LikeButton'
 import { ChevronLeftIcon } from '../components/icons'
 
 export function ArticlePage() {
@@ -38,6 +40,11 @@ export function ArticlePage() {
 
   const article = local ?? remote
   const isMine = !!local
+
+  const uid = session?.user.id
+  const { data: likeRows } = useArticleLikes(id ? [id] : [], !!session)
+  const likers = likeRows ?? []
+  const liked = likers.some((r) => r.user_id === uid)
 
   if (!article && isLoading) {
     return <div className="px-4 pt-6"><div className="h-40 animate-pulse rounded-xl bg-surface" /></div>
@@ -84,6 +91,26 @@ export function ArticlePage() {
       <p className="mt-1.5 text-xs text-ink-faint">
         by @{article.author} · {agoLabel(new Date(article.createdAt))}
       </p>
+
+      {session && uid && id && (
+        <div className="mt-3 flex items-center gap-3">
+          <LikeButton articleId={id} uid={uid} count={likers.length} liked={liked} size="full" />
+          {likers.length > 0 && (
+            <p className="min-w-0 truncate text-xs text-ink-faint">
+              Liked by{' '}
+              {likers.slice(0, 3).map((l, i) => (
+                <span key={l.user_id}>
+                  {i > 0 && ', '}
+                  <Link to={`/u/${l.username}`} className="font-medium text-ink-soft">
+                    @{l.username}
+                  </Link>
+                </span>
+              ))}
+              {likers.length > 3 && ` and ${likers.length - 3} more`}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink">
         {article.body}
