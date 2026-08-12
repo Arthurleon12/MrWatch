@@ -13,7 +13,6 @@ import {
 // button that dead-ends on an error page is worse than no button.
 const APPLE_LOGIN_READY = ((import.meta.env.VITE_APPLE_LOGIN as string | undefined) ?? '') === '1'
 import { getProfileState, updateProfile, validateUsername } from '../store/profile'
-import { TvIcon } from '../components/icons'
 
 export function AuthPage() {
   const { session, profileStatus, initializing } = useSession()
@@ -21,7 +20,7 @@ export function AuthPage() {
   if (!backendReady) {
     return (
       <div className="flex min-h-[70dvh] flex-col items-center justify-center px-6 text-center">
-        <TvIcon className="h-10 w-10 text-accent" />
+        <img src="/logo-wordmark.png" alt="MrWatch" className="h-7 w-auto" />
         <h1 className="mt-4 font-display text-xl font-bold">MrWatch is in local mode</h1>
         <p className="mt-2 max-w-70 text-sm leading-relaxed text-ink-soft">
           Accounts aren't configured yet. Follow SETUP.md to connect Supabase, then this screen
@@ -68,10 +67,9 @@ function SignIn() {
   return (
     <div className="flex min-h-[80dvh] flex-col justify-center px-6">
       <div className="text-center">
-        <TvIcon className="mx-auto h-10 w-10 text-accent" />
-        <h1 className="mt-3 font-display text-2xl font-bold">MrWatch</h1>
-        <p className="mt-1 text-sm text-ink-soft">
-          Track your shows. Never miss an episode. Bring your friends.
+        <img src="/logo-wordmark.png" alt="MrWatch" className="mx-auto h-9 w-auto" />
+        <p className="mt-3 text-sm text-ink-soft">
+          Track your shows and movies. Never miss an episode. Bring your friends.
         </p>
       </div>
 

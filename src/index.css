@@ -8,8 +8,9 @@
   --color-ink: #e8eaec;
   --color-ink-soft: #a8b0b8;
   --color-ink-faint: #6e7880;
-  --color-accent: #ffc94a;
-  --color-accent-deep: #c98a0a;
+  /* brand orange, sampled from the MrWatch logo */
+  --color-accent: #ff5201;
+  --color-accent-deep: #c23f00;
   --font-display: "Futura", "Jost", "Century Gothic", "Avenir Next", system-ui, sans-serif;
   --font-sans: ui-rounded, -apple-system, "SF Pro Text", system-ui, sans-serif;
 }
