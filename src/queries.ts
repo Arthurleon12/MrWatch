@@ -357,19 +357,28 @@ export function useFriendData(username: string, enabled: boolean) {
       if (profError) throw new Error(profError.message)
       if (!prof) return null
 
-      const [tracks, watchedRows, movieRows] = await Promise.all([
+      const [tracks, movieRows] = await Promise.all([
         supabase!.from('tracks').select('show_id, name, image').eq('user_id', prof.id).order('added_at', { ascending: false }),
-        supabase!.from('watched').select('show_id').eq('user_id', prof.id).limit(20000),
         supabase!.from('movie_tracks').select('*').eq('user_id', prof.id),
       ])
       // a failed fetch must error (and retry), not get cached as "no data";
       // movie_tracks is the exception — it may not exist pre-migration
       if (tracks.error) throw new Error(tracks.error.message)
-      if (watchedRows.error) throw new Error(watchedRows.error.message)
 
+      // PostgREST caps responses at ~1000 rows — page through the history
       const watchedCounts: Record<number, number> = {}
-      for (const row of watchedRows.data ?? []) {
-        watchedCounts[row.show_id] = (watchedCounts[row.show_id] ?? 0) + 1
+      for (let from = 0; ; from += 1000) {
+        const page = await supabase!
+          .from('watched')
+          .select('show_id')
+          .eq('user_id', prof.id)
+          .order('episode_id', { ascending: true })
+          .range(from, from + 999)
+        if (page.error) throw new Error(page.error.message)
+        for (const row of page.data ?? []) {
+          watchedCounts[row.show_id] = (watchedCounts[row.show_id] ?? 0) + 1
+        }
+        if ((page.data ?? []).length < 1000) break
       }
 
       return {

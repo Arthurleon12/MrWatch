@@ -8,10 +8,12 @@ import type { TrackedShow, TvmShow } from '../types'
  * backed by Supabase with sync, without the UI changing.
  */
 
-interface LibraryState {
+export interface LibraryState {
   shows: Record<number, TrackedShow>
   /** watched episode ids per show */
   watched: Record<number, number[]>
+  /** episode id → rating, 1–10 with one decimal */
+  ratings: Record<number, number>
 }
 
 const STORAGE_KEY = 'mrwatch:library:v1'
@@ -20,11 +22,15 @@ const LEGACY_KEY = 'upnext:library:v1'
 function load(): LibraryState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY)
-    if (raw) return JSON.parse(raw) as LibraryState
+    if (raw) {
+      // states saved before ratings existed lack the map — default it in
+      const parsed = JSON.parse(raw) as LibraryState
+      return { ...parsed, ratings: parsed.ratings ?? {} }
+    }
   } catch {
     // corrupted state — start fresh rather than crash
   }
-  return { shows: {}, watched: {} }
+  return { shows: {}, watched: {}, ratings: {} }
 }
 
 let state: LibraryState = load()
@@ -74,23 +80,46 @@ export function trackShow(show: TvmShow) {
 export function untrackShow(showId: number) {
   const shows = { ...state.shows }
   const watched = { ...state.watched }
+  const ratings = { ...state.ratings }
+  for (const epId of watched[showId] ?? []) delete ratings[epId]
   delete shows[showId]
   delete watched[showId]
-  commit({ shows, watched })
+  commit({ shows, watched, ratings })
 }
 
 export function setEpisodeWatched(showId: number, episodeId: number, isWatched: boolean) {
   const current = new Set(state.watched[showId] ?? [])
+  const ratings = { ...state.ratings }
   if (isWatched) current.add(episodeId)
-  else current.delete(episodeId)
-  commit({ ...state, watched: { ...state.watched, [showId]: [...current] } })
+  else {
+    current.delete(episodeId)
+    delete ratings[episodeId] // an unwatched episode has no rating
+  }
+  commit({ ...state, ratings, watched: { ...state.watched, [showId]: [...current] } })
 }
 
 export function setManyWatched(showId: number, episodeIds: number[], isWatched: boolean) {
   const current = new Set(state.watched[showId] ?? [])
+  const ratings = { ...state.ratings }
   for (const id of episodeIds) {
     if (isWatched) current.add(id)
-    else current.delete(id)
+    else {
+      current.delete(id)
+      delete ratings[id]
+    }
   }
-  commit({ ...state, watched: { ...state.watched, [showId]: [...current] } })
+  commit({ ...state, ratings, watched: { ...state.watched, [showId]: [...current] } })
+}
+
+/** 1–10, one decimal. Rating an episode marks it watched; null clears. */
+export function setEpisodeRating(showId: number, episodeId: number, rating: number | null) {
+  const ratings = { ...state.ratings }
+  const current = new Set(state.watched[showId] ?? [])
+  if (rating === null) {
+    delete ratings[episodeId]
+  } else {
+    ratings[episodeId] = Math.min(10, Math.max(1, Math.round(rating * 10) / 10))
+    current.add(episodeId)
+  }
+  commit({ ...state, ratings, watched: { ...state.watched, [showId]: [...current] } })
 }

@@ -18,6 +18,7 @@ import { useArticles } from '../store/articles'
 import { backendReady, supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import { agoLabel, epCode, hasAired } from '../lib/time'
+import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
 import { ArrowDownIcon, ArrowUpIcon, GearIcon, HeartIcon, PencilIcon, PlusIcon, UserIcon, XIcon } from '../components/icons'
 
@@ -153,7 +154,9 @@ export function ProfilePage() {
         ).map(([n, label, to]) => {
           const cell = (
             <>
-              <p className="font-display text-lg font-bold tabular-nums">{n}</p>
+              <p className="font-display text-lg font-bold tabular-nums">
+                {typeof n === 'number' ? compactCount(n) : n}
+              </p>
               <p className="text-[0.6rem] uppercase tracking-wider text-ink-faint">{label}</p>
             </>
           )
@@ -545,7 +548,7 @@ function MyPostsSection({ signedIn, uid }: { signedIn: boolean; uid: string | un
               {a.stored ? (
                 <span className="flex flex-none items-center gap-1 text-xs text-ink-faint">
                   <HeartIcon filled={likeCount(a.id) > 0} className={`h-3.5 w-3.5 ${likeCount(a.id) > 0 ? 'text-accent' : ''}`} />
-                  <span className="tabular-nums">{likeCount(a.id)}</span>
+                  <span className="tabular-nums">{compactCount(likeCount(a.id))}</span>
                 </span>
               ) : (
                 <span className="flex-none rounded-full border border-line px-2 py-0.5 font-display text-[0.6rem] font-bold uppercase tracking-wider text-ink-faint">

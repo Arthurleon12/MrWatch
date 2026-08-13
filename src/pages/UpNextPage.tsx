@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useLibrary, setEpisodeWatched } from '../store/library'
 import { useTrackedShowDetails } from '../queries'
 import { agoLabel, epCode, episodeAirTime, hasAired } from '../lib/time'
+import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
 import { CheckIcon, SearchIcon } from '../components/icons'
 import type { TvmEpisode, TvmShow } from '../types'
@@ -108,7 +109,7 @@ export function UpNextPage() {
                   </p>
                   <p className="mt-0.5 text-xs text-ink-faint">
                     {airedAt ? `out ${agoLabel(airedAt)}` : 'aired'}
-                    {remaining > 0 && ` · +${remaining} more`}
+                    {remaining > 0 && ` · +${compactCount(remaining)} more`}
                   </p>
                 </div>
               </Link>

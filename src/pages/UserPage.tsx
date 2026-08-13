@@ -6,6 +6,7 @@ import { useProfile } from '../store/profile'
 import { useFriendTasteSnapshot, useMyTasteSnapshot } from '../queries'
 import { computeTasteMatch } from '../lib/match'
 import { agoLabel } from '../lib/time'
+import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
 import { ChevronLeftIcon, HeartsIcon, UserIcon } from '../components/icons'
 import type { Top10Show } from '../store/profile'
@@ -195,7 +196,9 @@ export function UserPage() {
         ).map(([n, label, to]) => {
           const cell = (
             <>
-              <p className="font-display text-lg font-bold tabular-nums">{n}</p>
+              <p className="font-display text-lg font-bold tabular-nums">
+                {typeof n === 'number' ? compactCount(n) : n}
+              </p>
               <p className="text-[0.65rem] uppercase tracking-wider text-ink-faint">{label}</p>
             </>
           )

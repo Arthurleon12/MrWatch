@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useShow } from '../queries'
-import { setEpisodeWatched, setManyWatched, trackShow, untrackShow, useLibrary } from '../store/library'
+import {
+  setEpisodeRating,
+  setEpisodeWatched,
+  setManyWatched,
+  trackShow,
+  untrackShow,
+  useLibrary,
+} from '../store/library'
 import { useProfile } from '../store/profile'
 import { stripHtml } from '../api/tvmaze'
 import { epCode, hasAired, shortDate, episodeAirTime } from '../lib/time'
+import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
 import { CheckIcon, ChevronLeftIcon, PlusIcon } from '../components/icons'
 import type { TvmEpisode } from '../types'
@@ -14,8 +22,10 @@ export function ShowPage() {
   const showId = Number(id)
   const navigate = useNavigate()
   const { data: show, isLoading, isError } = useShow(showId)
-  const { shows: tracked, watched } = useLibrary()
+  const { shows: tracked, watched, ratings } = useLibrary()
   const [expandSummary, setExpandSummary] = useState(false)
+  const [ratingEpId, setRatingEpId] = useState<number | null>(null)
+  const [ratingDraft, setRatingDraft] = useState(7)
 
   const isTracked = showId in tracked
   const watchedSet = useMemo(() => new Set(watched[showId] ?? []), [watched, showId])
@@ -110,7 +120,7 @@ export function ShowPage() {
           <div className="mt-4">
             <div className="flex items-baseline justify-between text-xs">
               <span className="font-display font-bold text-ink-soft">
-                {watchedCount} of {airedEpisodes.length} aired episodes watched
+                {compactCount(watchedCount)} of {compactCount(airedEpisodes.length)} aired episodes watched
               </span>
               {watchedCount < airedEpisodes.length && (
                 <button
@@ -161,40 +171,95 @@ export function ShowPage() {
                   const aired = hasAired(ep)
                   const isWatched = watchedSet.has(ep.id)
                   const airAt = episodeAirTime(ep)
+                  const rating = ratings[ep.id]
+                  const isRatingOpen = ratingEpId === ep.id
                   return (
-                    <div
-                      key={ep.id}
-                      className={`flex items-center gap-3 border-b border-line py-2.5 last:border-b-0 ${
-                        aired ? '' : 'opacity-50'
-                      }`}
-                    >
-                      <span className="w-12 flex-none text-xs font-medium text-ink-faint">
-                        {ep.number === null ? 'SP' : `E${String(ep.number).padStart(2, '0')}`}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className={`truncate text-sm ${isWatched ? 'text-ink-faint' : 'text-ink'}`}>
-                          {ep.name}
-                        </p>
-                        {airAt && (
-                          <p className="text-xs text-ink-faint">
-                            {aired ? shortDate(airAt) : `airs ${shortDate(airAt)}`}
+                    <div key={ep.id} className="border-b border-line last:border-b-0">
+                      <div
+                        className={`flex items-center gap-3 py-2.5 ${aired ? '' : 'opacity-50'}`}
+                      >
+                        <span className="w-12 flex-none text-xs font-medium text-ink-faint">
+                          {ep.number === null ? 'SP' : `E${String(ep.number).padStart(2, '0')}`}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className={`truncate text-sm ${isWatched ? 'text-ink-faint' : 'text-ink'}`}>
+                            {ep.name}
                           </p>
+                          {airAt && (
+                            <p className="text-xs text-ink-faint">
+                              {aired ? shortDate(airAt) : `airs ${shortDate(airAt)}`}
+                            </p>
+                          )}
+                        </div>
+                        {isWatched && (
+                          <button
+                            onClick={() => {
+                              setRatingEpId(isRatingOpen ? null : ep.id)
+                              setRatingDraft(rating ?? 7)
+                            }}
+                            aria-label={rating ? `Rated ${rating.toFixed(1)} — change rating` : `Rate ${epCode(ep)}`}
+                            className={`flex h-8 min-w-8 flex-none items-center justify-center rounded-full px-1.5 font-display text-xs font-bold transition-colors ${
+                              rating
+                                ? 'bg-raised text-accent'
+                                : 'border-2 border-line text-ink-faint active:border-accent'
+                            }`}
+                          >
+                            {rating ? rating.toFixed(1) : '★'}
+                          </button>
+                        )}
+                        {aired ? (
+                          <button
+                            onClick={() => setEpisodeWatched(show.id, ep.id, !isWatched)}
+                            aria-label={`Mark ${epCode(ep)} ${isWatched ? 'unwatched' : 'watched'}`}
+                            className={`flex h-8 w-8 flex-none items-center justify-center rounded-full transition-colors ${
+                              isWatched
+                                ? 'bg-accent text-bg'
+                                : 'border-2 border-line text-ink-faint active:border-accent'
+                            }`}
+                          >
+                            <CheckIcon className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <span className="h-8 w-8 flex-none" />
                         )}
                       </div>
-                      {aired ? (
-                        <button
-                          onClick={() => setEpisodeWatched(show.id, ep.id, !isWatched)}
-                          aria-label={`Mark ${epCode(ep)} ${isWatched ? 'unwatched' : 'watched'}`}
-                          className={`flex h-8 w-8 flex-none items-center justify-center rounded-full transition-colors ${
-                            isWatched
-                              ? 'bg-accent text-bg'
-                              : 'border-2 border-line text-ink-faint active:border-accent'
-                          }`}
-                        >
-                          <CheckIcon className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <span className="h-8 w-8 flex-none" />
+
+                      {isRatingOpen && isWatched && (
+                        <div className="flex items-center gap-3 pb-3 pl-12">
+                          <span className="w-9 flex-none text-center font-display text-lg font-bold text-accent tabular-nums">
+                            {ratingDraft.toFixed(1)}
+                          </span>
+                          <input
+                            type="range"
+                            min={1}
+                            max={10}
+                            step={0.1}
+                            value={ratingDraft}
+                            onChange={(e) => setRatingDraft(Number(e.target.value))}
+                            aria-label={`Rating for ${epCode(ep)}`}
+                            className="min-w-0 flex-1 accent-accent"
+                          />
+                          <button
+                            onClick={() => {
+                              setEpisodeRating(show.id, ep.id, ratingDraft)
+                              setRatingEpId(null)
+                            }}
+                            className="flex-none rounded-full bg-accent px-3.5 py-1.5 font-display text-xs font-bold text-bg"
+                          >
+                            Save
+                          </button>
+                          {rating != null && (
+                            <button
+                              onClick={() => {
+                                setEpisodeRating(show.id, ep.id, null)
+                                setRatingEpId(null)
+                              }}
+                              className="flex-none text-xs font-medium text-ink-faint"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )

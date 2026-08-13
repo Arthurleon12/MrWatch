@@ -1,4 +1,5 @@
 import { useLikeMutation } from '../queries'
+import { compactCount } from '../lib/format'
 import { HeartIcon } from './icons'
 
 interface LikeButtonProps {
@@ -30,7 +31,7 @@ export function LikeButton({ articleId, count, liked, uid, size = 'compact' }: L
       } ${size === 'full' ? 'text-sm' : 'text-xs'}`}
     >
       <HeartIcon filled={shownLiked} className={size === 'full' ? 'h-5 w-5' : 'h-4 w-4'} />
-      {shownCount > 0 && <span className="font-medium tabular-nums">{shownCount}</span>}
+      {shownCount > 0 && <span className="font-medium tabular-nums">{compactCount(shownCount)}</span>}
     </button>
   )
 }

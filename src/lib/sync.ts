@@ -74,8 +74,14 @@ async function pushLibrary(uid: string) {
     premiered: s.premiered,
     added_at: new Date(s.addedAt).toISOString(),
   }))
+  const { ratings } = getLibraryState()
   const watchedRows = Object.entries(watched).flatMap(([showId, eps]) =>
-    eps.map((episodeId) => ({ user_id: uid, show_id: Number(showId), episode_id: episodeId })),
+    eps.map((episodeId) => ({
+      user_id: uid,
+      show_id: Number(showId),
+      episode_id: episodeId,
+      rating: ratings[episodeId] ?? null,
+    })),
   )
 
   if (trackRows.length) throwIfError(await supabase.from('tracks').upsert(trackRows))
@@ -89,7 +95,18 @@ async function pushLibrary(uid: string) {
       : await supabase.from('tracks').delete().eq('user_id', uid),
   )
 
-  if (watchedRows.length) throwIfError(await supabase.from('watched').upsert(watchedRows))
+  if (watchedRows.length) {
+    const up = await supabase.from('watched').upsert(watchedRows)
+    if (up.error && /rating/i.test(up.error.message)) {
+      // ratings migration not applied yet — sync check-ins without them
+      console.warn('[sync] ratings not syncing — run supabase/migrations/2026-08-13-episode-ratings.sql')
+      throwIfError(
+        await supabase.from('watched').upsert(watchedRows.map(({ rating: _r, ...row }) => row)),
+      )
+    } else if (up.error) {
+      throw new Error(up.error.message)
+    }
+  }
   if (watchedRows.length === 0) {
     throwIfError(await supabase.from('watched').delete().eq('user_id', uid))
   } else if (watchedRows.length <= 400) {
@@ -220,12 +237,49 @@ async function pushArticles(uid: string) {
  * pre-account on-device history seed the new account. Failed fetches are
  * never mistaken for an empty cloud.
  */
+interface WatchedRow {
+  show_id: number
+  episode_id: number
+  rating: number | null
+}
+
+/**
+ * PostgREST caps every response at ~1000 rows — a real watch history blows
+ * straight past that (this literally froze Arthur's episode count at 1000).
+ * Page through with range() until a short page says we have everything.
+ */
+async function fetchAllWatched(uid: string): Promise<{ rows: WatchedRow[] | null; error: unknown }> {
+  const PAGE = 1000
+  const rows: WatchedRow[] = []
+  for (let from = 0; ; from += PAGE) {
+    let res = await supabase!
+      .from('watched')
+      .select('show_id, episode_id, rating')
+      .eq('user_id', uid)
+      .order('episode_id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (res.error && /rating/i.test(res.error.message)) {
+      // ratings column not migrated yet — fall back without it
+      res = (await supabase!
+        .from('watched')
+        .select('show_id, episode_id')
+        .eq('user_id', uid)
+        .order('episode_id', { ascending: true })
+        .range(from, from + PAGE - 1)) as typeof res
+    }
+    if (res.error) return { rows: null, error: res.error }
+    const page = (res.data ?? []) as WatchedRow[]
+    rows.push(...page)
+    if (page.length < PAGE) return { rows, error: null }
+  }
+}
+
 export async function pullAndHydrate(uid: string, seedLocal = false) {
   if (!supabase) return
   const [profileRes, tracksRes, watchedRes, moviesRes, articlesRes] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', uid).maybeSingle(),
     supabase.from('tracks').select('*').eq('user_id', uid),
-    supabase.from('watched').select('show_id, episode_id').eq('user_id', uid),
+    fetchAllWatched(uid),
     supabase.from('movie_tracks').select('*').eq('user_id', uid),
     supabase.from('articles').select('*').eq('user_id', uid).order('created_at', { ascending: false }),
   ])
@@ -262,14 +316,16 @@ export async function pullAndHydrate(uid: string, seedLocal = false) {
         }
       }
       const watched: Record<number, number[]> = {}
-      for (const w of watchedRes.data ?? []) {
+      const ratings: Record<number, number> = {}
+      for (const w of watchedRes.rows ?? []) {
         ;(watched[w.show_id] ??= []).push(w.episode_id)
+        if (w.rating != null) ratings[w.episode_id] = Number(w.rating)
       }
-      hydrateLibrary({ shows, watched })
+      hydrateLibrary({ shows, watched, ratings })
     } else if (seedLocal && Object.keys(getLibraryState().shows).length > 0) {
       await pushLibrary(uid) // first claim on a device with history: migrate it up
     } else {
-      hydrateLibrary({ shows: {}, watched: {} })
+      hydrateLibrary({ shows: {}, watched: {}, ratings: {} })
     }
   }
 
@@ -327,7 +383,7 @@ export async function pullAndHydrate(uid: string, seedLocal = false) {
  * device never inherits (or accidentally seeds) the previous user's history.
  */
 export function clearLocalData() {
-  hydrateLibrary({ shows: {}, watched: {} })
+  hydrateLibrary({ shows: {}, watched: {}, ratings: {} })
   hydrateMovies({ movies: {} })
   hydrateArticles([])
   resetProfile()

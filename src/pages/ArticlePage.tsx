@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import { useArticleLikes } from '../queries'
 import { agoLabel } from '../lib/time'
+import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
 import { LikeButton } from '../components/LikeButton'
 import { ChevronLeftIcon } from '../components/icons'
@@ -106,7 +107,7 @@ export function ArticlePage() {
                   </Link>
                 </span>
               ))}
-              {likers.length > 3 && ` and ${likers.length - 3} more`}
+              {likers.length > 3 && ` and ${compactCount(likers.length - 3)} more`}
             </p>
           )}
         </div>
