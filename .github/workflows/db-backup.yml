@@ -42,6 +42,17 @@ jobs:
             echo "::error::SUPABASE_DB_URL secret is not set — see the header of this workflow file."
             exit 1
           fi
+          # A malformed URI must fail HERE with a generic message — pg_dump's
+          # own error can echo pieces of the URI into a public log.
+          case "$DB_URL" in
+            *\[*|*\]*|*" "*)
+              echo "::error::SUPABASE_DB_URL is malformed: it still contains [brackets] or a space. Replace the ENTIRE [YOUR-PASSWORD] placeholder (brackets included) with the password itself."
+              exit 1;;
+          esac
+          # Belt and braces: mask the password segment so no tool output can
+          # ever print it, even on unexpected errors.
+          PW="$(printf '%s' "$DB_URL" | sed -E 's|^[a-z]+://[^:/]+:([^@]+)@.*$|\1|')"
+          if [ -n "$PW" ] && [ "$PW" != "$DB_URL" ]; then echo "::add-mask::$PW"; fi
           pg_dump "$DB_URL" --schema=public --no-owner --no-privileges -f backup.sql
           wc -c backup.sql
 
