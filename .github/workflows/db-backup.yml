@@ -53,7 +53,8 @@ jobs:
           # ever print it, even on unexpected errors.
           PW="$(printf '%s' "$DB_URL" | sed -E 's|^[a-z]+://[^:/]+:([^@]+)@.*$|\1|')"
           if [ -n "$PW" ] && [ "$PW" != "$DB_URL" ]; then echo "::add-mask::$PW"; fi
-          pg_dump "$DB_URL" --schema=public --no-owner --no-privileges -f backup.sql
+          # full path: the runner's default pg_dump is v16, the server is v17
+          /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges -f backup.sql
           wc -c backup.sql
 
       - name: Encrypt
