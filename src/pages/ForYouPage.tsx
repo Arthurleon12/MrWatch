@@ -11,6 +11,7 @@ import { useSession } from '../store/session'
 import {
   useArticleLikes,
   useFansAlsoWatch,
+  useFriendActivity,
   useMovieRecs,
   useNowPlaying,
   useScheduleWindow,
@@ -23,7 +24,7 @@ import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { buildTasteProfile, rankCandidates } from '../lib/recommend'
 import { agoLabel } from '../lib/time'
 import { Poster } from '../components/Poster'
-import { BellIcon, PencilIcon } from '../components/icons'
+import { BellIcon, PencilIcon, UserIcon } from '../components/icons'
 import type { TvmShow } from '../types'
 
 type Lens = 'all' | 'shows' | 'anime'
@@ -82,6 +83,7 @@ export function ForYouPage() {
 
   const uid = session?.user.id
   const { data: unread } = useUnreadCount(signedIn ? uid : undefined)
+  const { data: activity } = useFriendActivity(signedIn ? uid : undefined)
   const { data: likeRows } = useArticleLikes(
     articles.map((a) => a.id),
     signedIn,
@@ -212,6 +214,65 @@ export function ForYouPage() {
         <p className="mt-2 text-[0.68rem] text-ink-faint">
           Movies join the mix once the TMDB catalog is connected.
         </p>
+      )}
+
+      {/* ---- friends activity: the reason following exists ---- */}
+      {signedIn && activity && activity.following > 0 && activity.events.length > 0 && (
+        <section className="mt-6">
+          <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">
+            Friends
+          </h2>
+          <div className="mt-3 flex flex-col gap-2">
+            {activity.events.map((e) => {
+              const target = e.kind === 'movie' ? `/movie/${e.movieId}` : `/show/${e.showId}`
+              return (
+                <div key={e.key} className="flex items-center gap-3 rounded-xl bg-surface p-2.5">
+                  <Link to={`/u/${e.username}`} className="h-9 w-9 flex-none overflow-hidden rounded-full bg-raised">
+                    {e.avatarUrl ? (
+                      <img src={e.avatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-ink-faint">
+                        <UserIcon className="h-4 w-4" />
+                      </span>
+                    )}
+                  </Link>
+                  <p className="min-w-0 flex-1 text-sm leading-snug">
+                    <Link to={`/u/${e.username}`} className="font-display font-bold">@{e.username}</Link>{' '}
+                    <span className="text-ink-soft">
+                      {e.kind === 'tracked'
+                        ? 'started tracking'
+                        : e.kind === 'movie'
+                          ? 'watched'
+                          : (e.count ?? 1) > 1
+                            ? `watched ${e.count} episodes of`
+                            : 'watched an episode of'}
+                    </span>{' '}
+                    <Link to={target} className="font-medium text-ink">{e.title}</Link>
+                    {e.rating != null && (
+                      <span className="ml-1.5 font-display text-xs font-bold text-accent">★ {e.rating.toFixed(1)}</span>
+                    )}
+                    <span className="block text-xs text-ink-faint">{agoLabel(new Date(e.at))}</span>
+                  </p>
+                  <Link to={target} className="flex-none">
+                    <Poster src={e.image} alt="" kind={e.kind === 'movie' ? 'movie' : 'tv'} className="h-14 w-10 rounded-md" />
+                  </Link>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {signedIn && activity && activity.following === 0 && (
+        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
+          <h2 className="font-display text-sm font-bold">Your feed is waiting on friends</h2>
+          <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+            Follow people and their check-ins, ratings, and movie nights show up here. Find them
+            in Search with <span className="text-accent">@name</span> — or check your{' '}
+            <Link to="/notifications" className="font-medium text-accent">notifications</Link> to
+            follow back whoever found you first.
+          </p>
+        </section>
       )}
 
       {/* ---- articles ---- */}

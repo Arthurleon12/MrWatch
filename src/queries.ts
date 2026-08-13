@@ -293,6 +293,139 @@ export function useConnections(username: string, kind: 'followers' | 'following'
   })
 }
 
+export interface ActivityEvent {
+  key: string
+  kind: 'watched' | 'tracked' | 'movie'
+  username: string
+  avatarUrl: string | null
+  /** show or movie title */
+  title: string
+  image: string | null
+  showId?: number
+  movieId?: number
+  /** episodes bundled into this event (kind: watched) */
+  count?: number
+  /** highest episode rating in the bundle, when any */
+  rating?: number
+  at: number
+}
+
+/**
+ * What the people you follow have been up to — check-ins grouped per show
+ * so a binge reads as one line, plus new tracks and watched movies.
+ */
+export function useFriendActivity(uid: string | undefined) {
+  return useQuery({
+    queryKey: ['friend-activity', uid],
+    queryFn: async (): Promise<{ following: number; events: ActivityEvent[] }> => {
+      const { data: follows, error: followsError } = await supabase!
+        .from('follows')
+        .select('followee_id')
+        .eq('follower_id', uid!)
+      if (followsError) throw new Error(followsError.message)
+      const ids = (follows ?? []).map((f) => f.followee_id)
+      if (ids.length === 0) return { following: 0, events: [] }
+
+      const [profilesRes, tracksRes, watchedRes, moviesRes] = await Promise.all([
+        supabase!.from('profiles').select('id, username, avatar_url').in('id', ids),
+        supabase!
+          .from('tracks')
+          .select('user_id, show_id, name, image, added_at')
+          .in('user_id', ids)
+          .order('added_at', { ascending: false })
+          .limit(30),
+        supabase!
+          .from('watched')
+          .select('user_id, show_id, rating, watched_at')
+          .in('user_id', ids)
+          .order('watched_at', { ascending: false })
+          .limit(300),
+        supabase!.from('movie_tracks').select('user_id, movie_id, title, poster, status, watched_at, added_at').in('user_id', ids),
+      ])
+      if (profilesRes.error) throw new Error(profilesRes.error.message)
+
+      const who = new Map(
+        (profilesRes.data ?? []).map((p) => [
+          p.id as string,
+          { username: p.username as string, avatarUrl: (p.avatar_url as string | null) ?? null },
+        ]),
+      )
+      const showMeta = new Map(
+        (tracksRes.data ?? []).map((t) => [`${t.user_id}|${t.show_id}`, { name: t.name, image: t.image }]),
+      )
+
+      const events: ActivityEvent[] = []
+
+      // check-ins, one event per (person, show) bundle
+      const bundles = new Map<string, ActivityEvent>()
+      for (const w of watchedRes.data ?? []) {
+        const person = who.get(w.user_id)
+        if (!person) continue
+        const meta = showMeta.get(`${w.user_id}|${w.show_id}`)
+        const bkey = `${w.user_id}|${w.show_id}`
+        const existing = bundles.get(bkey)
+        const at = w.watched_at ? new Date(w.watched_at).getTime() : 0
+        if (existing) {
+          existing.count = (existing.count ?? 1) + 1
+          existing.at = Math.max(existing.at, at)
+          if (w.rating != null) existing.rating = Math.max(existing.rating ?? 0, Number(w.rating))
+        } else {
+          bundles.set(bkey, {
+            key: `w|${bkey}`,
+            kind: 'watched',
+            username: person.username,
+            avatarUrl: person.avatarUrl,
+            title: meta?.name ?? 'a show',
+            image: meta?.image ?? null,
+            showId: w.show_id,
+            count: 1,
+            rating: w.rating != null ? Number(w.rating) : undefined,
+            at,
+          })
+        }
+      }
+      events.push(...bundles.values())
+
+      for (const t of tracksRes.data ?? []) {
+        const person = who.get(t.user_id)
+        if (!person) continue
+        events.push({
+          key: `t|${t.user_id}|${t.show_id}`,
+          kind: 'tracked',
+          username: person.username,
+          avatarUrl: person.avatarUrl,
+          title: t.name,
+          image: t.image,
+          showId: t.show_id,
+          at: new Date(t.added_at).getTime(),
+        })
+      }
+
+      for (const m of moviesRes.data ?? []) {
+        if (m.status !== 'watched') continue
+        const person = who.get(m.user_id)
+        if (!person) continue
+        events.push({
+          key: `m|${m.user_id}|${m.movie_id}`,
+          kind: 'movie',
+          username: person.username,
+          avatarUrl: person.avatarUrl,
+          title: m.title,
+          image: m.poster,
+          movieId: m.movie_id,
+          at: new Date(m.watched_at ?? m.added_at).getTime(),
+        })
+      }
+
+      events.sort((a, b) => b.at - a.at)
+      return { following: ids.length, events: events.slice(0, 20) }
+    },
+    enabled: !!supabase && !!uid,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
+  })
+}
+
 export interface MyArticleRow {
   id: string
   title: string

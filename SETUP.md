@@ -97,6 +97,22 @@ run on the TMDB catalog. Two steps:
 once. Until then movies still work on each device — they just don't sync/appear on
 profiles. Everything else keeps syncing regardless.
 
+## 8. Weekly database backups — ~3 min (do this; history was lost once already)
+
+The free Supabase tier keeps no backups. The repo ships a GitHub Action
+(`.github/workflows/db-backup.yml`) that dumps the database every Monday,
+encrypts it, and stores it as a build artifact for 90 days. To activate:
+
+1. Supabase → **Connect** (top bar) → copy the **Direct connection** URI and put
+   your database password in it. (Rotate the password first if you haven't.)
+2. GitHub → the MrWatch repo → **Settings → Secrets and variables → Actions**:
+   - New secret `SUPABASE_DB_URL` = that URI
+   - New secret `BACKUP_PASSPHRASE` = a long random string — **save it in your
+     password manager**; a backup can't be decrypted without it.
+3. Actions tab → "Database backup" → **Run workflow** once to confirm it goes green.
+
+Restore instructions are in the workflow file header.
+
 ## What your friends experience
 
 Open the link → Continue with Google (or email link) → pick a unique @username →
