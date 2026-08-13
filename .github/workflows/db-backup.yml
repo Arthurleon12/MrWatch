@@ -5,7 +5,8 @@
 # and on demand (Actions tab → Database backup → Run workflow).
 #
 # Requires two repository secrets (Settings → Secrets and variables → Actions):
-#   SUPABASE_DB_URL     — Supabase → Connect → Direct connection URI
+#   SUPABASE_DB_URL     — Supabase → Connect → SESSION POOLER URI (the direct
+#                         connection is IPv6-only; GitHub runners are IPv4)
 #   BACKUP_PASSPHRASE   — any long random string; KEEP IT SOMEWHERE SAFE,
 #                         without it a backup cannot be decrypted
 #

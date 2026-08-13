@@ -103,8 +103,10 @@ The free Supabase tier keeps no backups. The repo ships a GitHub Action
 (`.github/workflows/db-backup.yml`) that dumps the database every Monday,
 encrypts it, and stores it as a build artifact for 90 days. To activate:
 
-1. Supabase → **Connect** (top bar) → copy the **Direct connection** URI and put
-   your database password in it. (Rotate the password first if you haven't.)
+1. Supabase → **Connect** (top bar) → copy the **Session pooler** URI (NOT
+   "Direct connection" — that one is IPv6-only and GitHub's servers can't reach
+   it) and put your database password in it. (Rotate the password first if you
+   haven't.)
 2. GitHub → the MrWatch repo → **Settings → Secrets and variables → Actions**:
    - New secret `SUPABASE_DB_URL` = that URI
    - New secret `BACKUP_PASSPHRASE` = a long random string — **save it in your
