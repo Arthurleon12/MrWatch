@@ -1,5 +1,6 @@
 import type { TvmShow } from '../types'
 import type { Top10Show } from '../store/profile'
+import { affinityMultiplier, ratingAgreement, type ShowRating } from './ratings'
 
 /**
  * Taste Match — the MrWatch AI pairing engine.
@@ -47,6 +48,8 @@ export interface TasteSnapshot {
   wantMovies: TasteSourceMovie[]
   /** normalized genre key → weight (max 1), from shows AND movies */
   genreWeights: Map<string, number>
+  /** show id → what this person scored that show's episodes */
+  showRatings: Map<number, ShowRating>
 }
 
 export function buildTasteSnapshot(input: {
@@ -58,6 +61,8 @@ export function buildTasteSnapshot(input: {
   ladderShows: Top10Show[]
   ladderMovies: Top10Show[]
   movies: TasteSourceMovie[]
+  /** show id → episode-rating average, when this person rates episodes */
+  showRatings?: Map<number, ShowRating>
 }): TasteSnapshot {
   const genreWeights = new Map<string, number>()
   const add = (genre: string, weight: number) => {
@@ -69,8 +74,10 @@ export function buildTasteSnapshot(input: {
   for (const t of input.tracked) {
     const watchedCount = input.watchedCounts[t.id] ?? 0
     const ladderIndex = input.ladderShows.findIndex((l) => l.id === t.id)
-    // same engagement weighting as the solo recommendation engine
-    const weight = 1 + Math.log2(1 + watchedCount) + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0)
+    // same engagement weighting as the solo recommendation engine, ratings included
+    const weight =
+      (1 + Math.log2(1 + watchedCount) + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0)) *
+      affinityMultiplier(input.showRatings?.get(t.id))
     for (const g of detailById.get(t.id)?.genres ?? []) add(g, weight)
   }
 
@@ -93,6 +100,7 @@ export function buildTasteSnapshot(input: {
     watchedMovies: input.movies.filter((m) => m.status === 'watched'),
     wantMovies: input.movies.filter((m) => m.status === 'want'),
     genreWeights,
+    showRatings: input.showRatings ?? new Map(),
   }
 }
 
@@ -107,6 +115,8 @@ export interface TasteMatch {
   sharedGenres: string[]
   /** titles both people put on their ladders */
   ladderAgreements: { name: string; rankA: number; rankB: number }[]
+  /** shows both people have rated, with each side's average */
+  ratingAgreements: { name: string; mine: number; theirs: number }[]
   /** false while either side has too little history to mean much */
   hasEnoughData: boolean
 }
@@ -142,6 +152,17 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
     }
   }
 
+  // shows both have rated: the sharpest signal we have, because it compares
+  // opinions rather than exposure — two people can watch the same show and
+  // disagree completely about it
+  const agreement = ratingAgreement(a.showRatings, b.showRatings)
+  const nameById = new Map<number, string>()
+  for (const s of [...a.trackedShows, ...b.trackedShows]) nameById.set(s.id, s.name)
+  const ratingAgreements = agreement.shared
+    .map((r) => ({ name: nameById.get(r.showId) ?? '', mine: r.mine, theirs: r.theirs }))
+    .filter((r) => r.name)
+    .sort((x, y) => Math.abs(x.mine - x.theirs) - Math.abs(y.mine - y.theirs))
+
   // components, each 0..1, skipped when either side lacks the data
   const parts: { weight: number; value: number }[] = []
 
@@ -162,6 +183,11 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
       ladderAgreements.reduce((acc, l) => acc + (1 - Math.abs(l.rankA - l.rankB) / 10), 0) /
       ladderAgreements.length
     parts.push({ weight: 0.1, value: closeness })
+  }
+  if (agreement.score !== null) {
+    // weighted like the genre component: agreeing on shows you've both scored
+    // says more than sharing a genre, so it carries real weight once it exists
+    parts.push({ weight: 0.25, value: agreement.score })
   }
 
   const totalWeight = parts.reduce((acc, p) => acc + p.weight, 0)
@@ -184,6 +210,7 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
     sharedMovies,
     sharedGenres,
     ladderAgreements,
+    ratingAgreements,
     hasEnoughData: substance(a) >= 2 && substance(b) >= 2,
   }
 }

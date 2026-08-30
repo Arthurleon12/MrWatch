@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { fetchAllPages, type PageResult } from './paginate'
 import { onStoreChange, type StoreName } from './bus'
 import { getLibraryState, hydrateLibrary } from '../store/library'
 import { getMoviesState, hydrateMovies, type MovieStatus, type TrackedMovie } from '../store/movies'
@@ -244,34 +245,24 @@ interface WatchedRow {
 }
 
 /**
- * PostgREST caps every response at ~1000 rows — a real watch history blows
- * straight past that (this literally froze Arthur's episode count at 1000).
- * Page through with range() until a short page says we have everything.
+ * The whole watch history, page by page — never a truncated first 1000 rows,
+ * which the prune-on-push would then treat as the complete picture.
  */
 async function fetchAllWatched(uid: string): Promise<{ rows: WatchedRow[] | null; error: unknown }> {
-  const PAGE = 1000
-  const rows: WatchedRow[] = []
-  for (let from = 0; ; from += PAGE) {
-    let res = await supabase!
-      .from('watched')
-      .select('show_id, episode_id, rating')
-      .eq('user_id', uid)
-      .order('episode_id', { ascending: true })
-      .range(from, from + PAGE - 1)
-    if (res.error && /rating/i.test(res.error.message)) {
-      // ratings column not migrated yet — fall back without it
-      res = (await supabase!
-        .from('watched')
-        .select('show_id, episode_id')
-        .eq('user_id', uid)
-        .order('episode_id', { ascending: true })
-        .range(from, from + PAGE - 1)) as typeof res
-    }
-    if (res.error) return { rows: null, error: res.error }
-    const page = (res.data ?? []) as WatchedRow[]
-    rows.push(...page)
-    if (page.length < PAGE) return { rows, error: null }
-  }
+  const read = (columns: string) =>
+    fetchAllPages<WatchedRow>(
+      (from, to) =>
+        supabase!
+          .from('watched')
+          .select(columns)
+          .eq('user_id', uid)
+          .order('episode_id', { ascending: true })
+          .range(from, to) as unknown as Promise<PageResult<WatchedRow>>,
+    )
+  const res = await read('show_id, episode_id, rating')
+  // ratings column not migrated yet — fall back without it
+  if (res.error && /rating/i.test(res.error.message)) return read('show_id, episode_id')
+  return res
 }
 
 export async function pullAndHydrate(uid: string, seedLocal = false) {

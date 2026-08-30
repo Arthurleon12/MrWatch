@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useShow } from '../queries'
+import { useShow, useSpoilerGuard } from '../queries'
 import {
   setEpisodeRating,
   setEpisodeWatched,
@@ -13,7 +13,9 @@ import { useProfile } from '../store/profile'
 import { stripHtml } from '../api/tvmaze'
 import { epCode, hasAired, shortDate, episodeAirTime } from '../lib/time'
 import { compactCount } from '../lib/format'
+import { showRatings } from '../lib/ratings'
 import { Poster } from '../components/Poster'
+import { SpoilerText } from '../components/Spoiler'
 import { CheckIcon, ChevronLeftIcon, PlusIcon } from '../components/icons'
 import type { TvmEpisode } from '../types'
 
@@ -26,9 +28,11 @@ export function ShowPage() {
   const [expandSummary, setExpandSummary] = useState(false)
   const [ratingEpId, setRatingEpId] = useState<number | null>(null)
   const [ratingDraft, setRatingDraft] = useState(7)
+  const spoilers = useSpoilerGuard([showId])
 
   const isTracked = showId in tracked
   const watchedSet = useMemo(() => new Set(watched[showId] ?? []), [watched, showId])
+  const myRating = useMemo(() => showRatings(watched, ratings).get(showId), [watched, ratings, showId])
   const ladderPos = useProfile().top10Shows.findIndex((s) => s.id === showId)
 
   const seasons = useMemo(() => {
@@ -103,6 +107,15 @@ export function ShowPage() {
                   {ladderPos >= 0 ? `Ranked #${ladderPos + 1} · re-rank` : 'Rank it'}
                 </Link>
               )}
+              {myRating && (
+                <span
+                  className="rounded-full bg-raised px-3 py-1.5 font-display text-xs font-bold text-accent"
+                  title={`Your average across ${myRating.count} rated episode${myRating.count === 1 ? '' : 's'}`}
+                >
+                  ★ {myRating.avg.toFixed(1)}
+                  <span className="ml-1 font-medium text-ink-faint">your score</span>
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -173,6 +186,8 @@ export function ShowPage() {
                   const airAt = episodeAirTime(ep)
                   const rating = ratings[ep.id]
                   const isRatingOpen = ratingEpId === ep.id
+                  const hideTitle =
+                    ep.number !== null && spoilers.hides(show.id, { season: ep.season, number: ep.number })
                   return (
                     <div key={ep.id} className="border-b border-line last:border-b-0">
                       <div
@@ -183,7 +198,11 @@ export function ShowPage() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className={`truncate text-sm ${isWatched ? 'text-ink-faint' : 'text-ink'}`}>
-                            {ep.name}
+                            {hideTitle ? (
+                              <SpoilerText label={`${epCode(ep)} title hidden`}>{ep.name}</SpoilerText>
+                            ) : (
+                              ep.name
+                            )}
                           </p>
                           {airAt && (
                             <p className="text-xs text-ink-faint">

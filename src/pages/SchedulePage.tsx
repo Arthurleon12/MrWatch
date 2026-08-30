@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
 import { useLibrary } from '../store/library'
-import { useTrackedShowDetails } from '../queries'
+import { useSpoilerGuard, useTrackedShowDetails } from '../queries'
 import { dayLabel, epCode, episodeAirTime, shortDate, timeOfDay } from '../lib/time'
 import { Poster } from '../components/Poster'
+import { SpoilerText } from '../components/Spoiler'
 import type { TvmEpisode, TvmShow } from '../types'
 
 interface Upcoming {
@@ -17,6 +18,8 @@ export function SchedulePage() {
   const { shows } = useLibrary()
   const trackedIds = Object.keys(shows).map(Number)
   const queries = useTrackedShowDetails(trackedIds)
+  // behind on a show? its upcoming titles give away what you haven't seen yet
+  const spoilers = useSpoilerGuard(trackedIds)
 
   const now = new Date()
   const horizon = new Date(now.getTime() + HORIZON_DAYS * 86_400_000)
@@ -103,7 +106,14 @@ export function SchedulePage() {
                       <p className="truncate font-display text-sm font-bold">{show.name}</p>
                       <p className="truncate text-xs text-ink-soft">
                         <span className="font-medium text-accent">{epCode(ep)}</span>
-                        {ep.name ? ` · ${ep.name}` : ''}
+                        {ep.name && ' · '}
+                        {ep.name &&
+                          (ep.number !== null &&
+                          spoilers.hides(show.id, { season: ep.season, number: ep.number }) ? (
+                            <SpoilerText label={`${epCode(ep)} title hidden`}>{ep.name}</SpoilerText>
+                          ) : (
+                            ep.name
+                          ))}
                       </p>
                     </div>
                     <span className="flex-none text-xs font-medium text-ink-faint">{timeOfDay(at)}</span>

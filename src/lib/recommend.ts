@@ -1,12 +1,13 @@
 import type { TvmShow } from '../types'
 import type { Top10Show } from '../store/profile'
+import { affinityMultiplier, type ShowRating } from './ratings'
 
 /**
  * Taste-based recommendation scoring.
  *
  * A user's taste profile is built from the shows they track, weighted by
- * real engagement: how many episodes they've actually watched, and where
- * the show sits on their ladder. Candidates are scored by genre overlap
+ * real engagement: how many episodes they've actually watched, where the show
+ * sits on their ladder, and how they rate its episodes. Candidates are scored by genre overlap
  * against that profile, with a network-affinity bonus and a public-rating
  * prior. Every pick carries attribution ("because you watch …") so the
  * feed never feels like a black box.
@@ -18,7 +19,7 @@ export interface TasteProfile {
   /** network/webChannel name → weight, normalized to max 1 */
   networks: Map<string, number>
   /** tracked shows with their genres, for "because you watch X" attribution */
-  seeds: { id: number; name: string; genres: string[]; weight: number }[]
+  seeds: { id: number; name: string; genres: string[]; weight: number; rating?: ShowRating }[]
   /** languages the user demonstrably watches */
   languages: Set<string>
 }
@@ -36,9 +37,16 @@ interface EngagementInputs {
   /** watched episode ids per show id */
   watched: Record<number, number[]>
   ladder: Top10Show[]
+  /** per-show rating averages, from the user's episode ratings */
+  ratings?: Map<number, ShowRating>
 }
 
-export function buildTasteProfile({ details, watched, ladder }: EngagementInputs): TasteProfile {
+export function buildTasteProfile({
+  details,
+  watched,
+  ladder,
+  ratings,
+}: EngagementInputs): TasteProfile {
   const genres = new Map<string, number>()
   const networks = new Map<string, number>()
   const seeds: TasteProfile['seeds'] = []
@@ -48,11 +56,14 @@ export function buildTasteProfile({ details, watched, ladder }: EngagementInputs
     if (show.language) languages.add(show.language)
     const watchedCount = watched[show.id]?.length ?? 0
     const ladderIndex = ladder.findIndex((l) => l.id === show.id)
-    // tracking alone counts for 1; deep watching and a high ladder spot count for more
+    const rating = ratings?.get(show.id)
+    // tracking alone counts for 1; deep watching and a high ladder spot count
+    // for more; what you scored the episodes scales the whole thing
     const weight =
-      1 + Math.log2(1 + watchedCount) + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0)
+      (1 + Math.log2(1 + watchedCount) + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0)) *
+      affinityMultiplier(rating)
 
-    seeds.push({ id: show.id, name: show.name, genres: show.genres, weight })
+    seeds.push({ id: show.id, name: show.name, genres: show.genres, weight, rating })
     for (const g of show.genres) genres.set(g, (genres.get(g) ?? 0) + weight)
     const net = show.network?.name ?? show.webChannel?.name
     if (net) networks.set(net, (networks.get(net) ?? 0) + weight)
@@ -100,15 +111,20 @@ export function scoreShow(candidate: TvmShow, profile: TasteProfile): ScoredShow
   const match = Math.round(Math.min(0.99, score) * 100)
 
   // attribution: the seed show sharing the most genre weight, else top genres
-  let bestSeed: { name: string; overlap: number } | null = null
+  let bestSeed: TasteProfile['seeds'][number] | null = null
+  let bestOverlap = 0
   for (const seed of profile.seeds) {
     const overlap = seed.genres.filter((g) => candidate.genres.includes(g)).length * seed.weight
-    if (overlap > 0 && (!bestSeed || overlap > bestSeed.overlap)) {
-      bestSeed = { name: seed.name, overlap }
+    if (overlap > 0 && overlap > bestOverlap) {
+      bestSeed = seed
+      bestOverlap = overlap
     }
   }
   const because = bestSeed
-    ? `Because you watch ${bestSeed.name}`
+    ? bestSeed.rating && bestSeed.rating.avg >= 8
+      // your own score is a stronger reason than the fact you watch it
+      ? `Because you rated ${bestSeed.name} ${bestSeed.rating.avg.toFixed(1)}`
+      : `Because you watch ${bestSeed.name}`
     : candidate.genres.slice(0, 2).join(' · ') || 'Popular now'
 
   return { show: candidate, match, because }

@@ -9,18 +9,24 @@ import { useSyncExternalStore } from 'react'
 
 interface SettingsState {
   tmdbKey: string
+  /** hide episode titles and posts that run ahead of your own progress */
+  spoilerGuard: boolean
 }
 
 const STORAGE_KEY = 'mrwatch:settings:v1'
 
+// Protection is the default: someone who never opens Settings should not be
+// the one who gets spoiled.
+const DEFAULTS: SettingsState = { tmdbKey: '', spoilerGuard: true }
+
 function load(): SettingsState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...{ tmdbKey: '' }, ...(JSON.parse(raw) as Partial<SettingsState>) }
+    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<SettingsState>) }
   } catch {
     // fall through
   }
-  return { tmdbKey: '' }
+  return { ...DEFAULTS }
 }
 
 let state: SettingsState = load()

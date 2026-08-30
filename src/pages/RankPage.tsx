@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLibrary } from '../store/library'
 import { useMovies } from '../store/movies'
@@ -8,6 +8,7 @@ import {
   useProfile,
   type Top10Show,
 } from '../store/profile'
+import { showRatings } from '../lib/ratings'
 import { Poster } from '../components/Poster'
 import { ChevronLeftIcon } from '../components/icons'
 
@@ -23,9 +24,14 @@ export function RankPage({ kind }: { kind: Kind }) {
   const { id } = useParams()
   const itemId = Number(id)
   const navigate = useNavigate()
-  const { shows } = useLibrary()
+  const { shows, watched, ratings } = useLibrary()
   const { movies } = useMovies()
   const profile = useProfile()
+
+  // your own episode scores, shown on both sides — the comparison is easier
+  // when you can see what you actually gave them
+  const byShow = useMemo(() => showRatings(watched, ratings), [watched, ratings])
+  const scoreOf = (id: number) => (kind === 'show' ? byShow.get(id) : undefined)
 
   const entry: Top10Show | null =
     kind === 'show'
@@ -142,18 +148,27 @@ export function RankPage({ kind }: { kind: Kind }) {
         {[
           { item: entry, better: () => setHi(mid) },
           { item: rival, better: () => setLo(mid + 1) },
-        ].map(({ item, better }) => (
-          <button
-            key={item.id}
-            onClick={better}
-            className="group flex flex-col items-center gap-2 rounded-2xl bg-surface p-3 transition-transform active:scale-95"
-          >
-            <Poster src={item.image} alt="" kind={kind === 'movie' ? 'movie' : 'tv'} className="aspect-[2/3] w-full rounded-xl" />
-            <span className="line-clamp-2 text-center font-display text-sm font-bold">
-              {item.name}
-            </span>
-          </button>
-        ))}
+        ].map(({ item, better }) => {
+          const score = scoreOf(item.id)
+          return (
+            <button
+              key={item.id}
+              onClick={better}
+              className="group flex flex-col items-center gap-2 rounded-2xl bg-surface p-3 transition-transform active:scale-95"
+            >
+              <Poster src={item.image} alt="" kind={kind === 'movie' ? 'movie' : 'tv'} className="aspect-[2/3] w-full rounded-xl" />
+              <span className="line-clamp-2 text-center font-display text-sm font-bold">
+                {item.name}
+              </span>
+              {score && (
+                <span className="font-display text-[0.68rem] font-bold text-accent">
+                  ★ {score.avg.toFixed(1)}
+                  <span className="ml-1 font-medium text-ink-faint">you</span>
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       <p className="mt-5 text-center text-xs text-ink-faint">

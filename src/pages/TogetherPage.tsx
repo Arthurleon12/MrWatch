@@ -251,6 +251,18 @@ export function TogetherPage() {
                 You both live for {match.sharedGenres.join(' · ')}
               </p>
             )}
+            {match.ratingAgreements.length > 0 && (
+              <p className="mt-1 text-xs text-ink-soft">
+                You rated {match.ratingAgreements[0].name}{' '}
+                <span className="font-display font-bold text-accent">
+                  {match.ratingAgreements[0].mine.toFixed(1)}
+                </span>
+                , they rated it{' '}
+                <span className="font-display font-bold text-accent">
+                  {match.ratingAgreements[0].theirs.toFixed(1)}
+                </span>
+              </p>
+            )}
             <p className="mt-1 text-[0.68rem] text-ink-faint">
               {[
                 match.sharedShows.length > 0 ? `${match.sharedShows.length} shows in common` : null,

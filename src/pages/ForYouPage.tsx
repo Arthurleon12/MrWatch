@@ -15,6 +15,7 @@ import {
   useMovieRecs,
   useNowPlaying,
   useScheduleWindow,
+  useSpoilerGuard,
   useTrackedShowDetails,
   useUnreadCount,
 } from '../queries'
@@ -22,8 +23,10 @@ import { LikeButton } from '../components/LikeButton'
 import { stripHtml } from '../api/tvmaze'
 import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { buildTasteProfile, rankCandidates } from '../lib/recommend'
+import { showRatings } from '../lib/ratings'
 import { agoLabel } from '../lib/time'
 import { Poster } from '../components/Poster'
+import { SpoilerBlock, SpoilerText } from '../components/Spoiler'
 import { BellIcon, PencilIcon, UserIcon } from '../components/icons'
 import type { TvmShow } from '../types'
 
@@ -48,7 +51,7 @@ interface FeedArticle {
 }
 
 export function ForYouPage() {
-  const { shows: tracked, watched } = useLibrary()
+  const { shows: tracked, watched, ratings } = useLibrary()
   const { movies: savedMovies } = useMovies()
   const localArticles = useArticles()
   const profile = useProfile()
@@ -88,6 +91,8 @@ export function ForYouPage() {
     articles.map((a) => a.id),
     signedIn,
   )
+  // a post about an episode you haven't reached is the spoiler that hurts most
+  const spoilers = useSpoilerGuard(articles.map((a) => a.subject.showId))
   const likesFor = (articleId: string) => {
     const rows = (likeRows ?? []).filter((r) => r.article_id === articleId)
     return { count: rows.length, liked: rows.some((r) => r.user_id === uid) }
@@ -119,9 +124,10 @@ export function ForYouPage() {
         details: trackedDetails.map((q) => q.data).filter((d): d is TvmShow => !!d),
         watched,
         ladder: profile.top10Shows,
+        ratings: showRatings(watched, ratings),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [trackedDetails.map((q) => q.dataUpdatedAt).join(','), watched, profile.top10Shows],
+    [trackedDetails.map((q) => q.dataUpdatedAt).join(','), watched, ratings, profile.top10Shows],
   )
 
   const lensFilter = (s: TvmShow) =>
@@ -289,7 +295,10 @@ export function ForYouPage() {
           </div>
         ) : (
           <div className="mt-3 flex flex-col gap-3">
-            {articles.map((a) => (
+            {articles.map((a) => {
+              const spoils = spoilers.hides(a.subject.showId, a.subject.epCode)
+              const preview = a.body.length > 140 ? `${a.body.slice(0, 140).trimEnd()}…` : a.body
+              return (
               <Link key={a.id} to={`/article/${a.id}`} className="block rounded-xl bg-surface p-3">
                 <span className="flex items-center gap-2">
                   <Poster src={a.subject.image} alt="" className="h-14 w-10 flex-none rounded-md" />
@@ -302,23 +311,28 @@ export function ForYouPage() {
                       </span>
                     </span>
                     <span className="mt-1.5 block truncate font-display text-sm font-bold text-ink">
-                      {a.title}
+                      {spoils ? <SpoilerText label="Post title hidden">{a.title}</SpoilerText> : a.title}
                     </span>
                     <span className="block text-xs text-ink-faint">
                       @{a.author} · {agoLabel(new Date(a.createdAt))}
                     </span>
                   </span>
                 </span>
-                <span className="mt-2 block text-sm leading-snug text-ink-soft">
-                  {a.body.length > 140 ? `${a.body.slice(0, 140).trimEnd()}…` : a.body}
-                </span>
+                {spoils ? (
+                  <SpoilerBlock epCode={a.subject.epCode} className="mt-2">
+                    <span className="mt-2 block text-sm leading-snug text-ink-soft">{preview}</span>
+                  </SpoilerBlock>
+                ) : (
+                  <span className="mt-2 block text-sm leading-snug text-ink-soft">{preview}</span>
+                )}
                 {signedIn && uid && (
                   <span className="mt-2.5 flex items-center">
                     <LikeButton articleId={a.id} uid={uid} {...likesFor(a.id)} />
                   </span>
                 )}
               </Link>
-            ))}
+              )
+            })}
           </div>
         )}
       </section>

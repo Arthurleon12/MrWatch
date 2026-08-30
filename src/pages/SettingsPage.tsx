@@ -23,6 +23,8 @@ export function SettingsPage() {
       </button>
       <h1 className="mt-3 font-display text-2xl font-bold tracking-tight">Settings</h1>
 
+      <SpoilerControl />
+
       <TmdbConnect />
 
       <section className="mt-8">
@@ -69,6 +71,35 @@ export function SettingsPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+/** The one setting behind spoiler-gating: on by default, off for the fearless. */
+function SpoilerControl() {
+  const { spoilerGuard } = useSettings()
+  return (
+    <section className="mt-8">
+      <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Spoilers</h2>
+      <div className="mt-3 rounded-xl bg-surface p-3.5">
+        <label className="flex items-start justify-between gap-4">
+          <span className="min-w-0">
+            <span className="block font-display text-sm font-bold">Spoiler guard</span>
+            <span className="mt-1 block text-xs leading-relaxed text-ink-soft">
+              Hide episode titles and posts that run ahead of where you are in a show. Tap
+              anything hidden to reveal it. Shows you don't track are never hidden.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={spoilerGuard}
+            onChange={(e) => updateSettings({ spoilerGuard: e.target.checked })}
+            aria-label="Spoiler guard"
+            className="mt-1 h-6 w-6 flex-none accent-accent"
+          />
+        </label>
+      </div>
+    </section>
   )
 }
 

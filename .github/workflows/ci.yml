@@ -1,0 +1,38 @@
+# Every push and pull request has to pass the same four gates the app is
+# built on: lint, types, tests, production build.
+#
+# The build step doubles as a typecheck (`tsc -b`) and as the guard that
+# refuses to bundle a credential that isn't a real TMDB key (vite.config.ts).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # ci, not install: the lockfile is the contract, and it also sidesteps
+      # npm's optional-dependency bug that leaves oxlint without its binary
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      - name: Build (typecheck + bundle)
+        run: npm run build

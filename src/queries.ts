@@ -11,9 +11,13 @@ import {
 } from './api/tmdb'
 import { supabase } from './lib/supabase'
 import { buildTasteSnapshot, type TasteSnapshot, type TasteSourceMovie } from './lib/match'
+import { fetchAllPages, type PageResult } from './lib/paginate'
+import { showRatings, type ShowRating } from './lib/ratings'
 import { useLibrary } from './store/library'
 import { useMovies } from './store/movies'
 import { useProfile, type Top10Show } from './store/profile'
+import { useSettings } from './store/settings'
+import { buildProgress, isSpoiler, parseEpCode, type EpisodeRef } from './lib/spoiler'
 import type { TvmShow } from './types'
 
 const SHOW_STALE_MS = 60 * 60 * 1000 // an hour is plenty for episode metadata
@@ -459,6 +463,42 @@ export function useMyArticles(uid: string | undefined) {
   })
 }
 
+/* ------------------------------ spoiler guard ----------------------------- */
+
+/**
+ * Spoiler guard for the shows on screen. Pass the show ids a page renders;
+ * only tracked ones are gated, and their episode metadata is the same cache
+ * entry those pages already read, so this costs no extra requests.
+ */
+export function useSpoilerGuard(showIds: number[]) {
+  const { shows, watched } = useLibrary()
+  const { spoilerGuard } = useSettings()
+
+  const key = showIds.join(',')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ids = useMemo(() => [...new Set(showIds)].filter((id) => id in shows), [key, shows])
+  const details = useTrackedShowDetails(spoilerGuard ? ids : [])
+
+  const progress = useMemo(
+    () => buildProgress(details.map((q) => q.data).filter((d): d is TvmShow => !!d), watched),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [details.map((q) => q.dataUpdatedAt).join(','), watched],
+  )
+
+  return useMemo(
+    () => ({
+      enabled: spoilerGuard,
+      /** Should this episode's title stay hidden? Accepts a ref or an "S05E10" code. */
+      hides(showId: number, episode: EpisodeRef | string | null | undefined): boolean {
+        if (!spoilerGuard) return false
+        const ref = typeof episode === 'string' ? parseEpCode(episode) : (episode ?? null)
+        return isSpoiler(ref, progress.get(showId))
+      },
+    }),
+    [spoilerGuard, progress],
+  )
+}
+
 /* --------------------- taste match / MrWatch AI data --------------------- */
 
 /** Bound the TVmaze detail fan-out for genre profiles. */
@@ -470,6 +510,8 @@ export interface FriendData {
   avatarUrl: string | null
   tracks: { show_id: number; name: string; image: string | null }[]
   watchedCounts: Record<number, number>
+  /** show id → their episode-rating average, for taste comparison */
+  showRatings: Record<number, ShowRating>
   ladderShows: Top10Show[]
   ladderMovies: Top10Show[]
   movies: TasteSourceMovie[]
@@ -499,19 +541,38 @@ export function useFriendData(username: string, enabled: boolean) {
       if (tracks.error) throw new Error(tracks.error.message)
 
       // PostgREST caps responses at ~1000 rows — page through the history
+      type WatchedRow = { show_id: number; rating: number | null }
+      const readWatched = (columns: string) =>
+        fetchAllPages<WatchedRow>(
+          (from, to) =>
+            supabase!
+              .from('watched')
+              .select(columns)
+              .eq('user_id', prof.id)
+              .order('episode_id', { ascending: true })
+              .range(from, to) as unknown as Promise<PageResult<WatchedRow>>,
+        )
+      let watchedRes = await readWatched('show_id, rating')
+      // a database that predates the ratings migration still has to load
+      if (watchedRes.error && /rating/i.test(watchedRes.error.message)) {
+        watchedRes = await readWatched('show_id')
+      }
+      if (watchedRes.error) throw new Error(watchedRes.error.message)
+
       const watchedCounts: Record<number, number> = {}
-      for (let from = 0; ; from += 1000) {
-        const page = await supabase!
-          .from('watched')
-          .select('show_id')
-          .eq('user_id', prof.id)
-          .order('episode_id', { ascending: true })
-          .range(from, from + 999)
-        if (page.error) throw new Error(page.error.message)
-        for (const row of page.data ?? []) {
-          watchedCounts[row.show_id] = (watchedCounts[row.show_id] ?? 0) + 1
+      const ratingTotals = new Map<number, { sum: number; count: number }>()
+      for (const row of watchedRes.rows) {
+        watchedCounts[row.show_id] = (watchedCounts[row.show_id] ?? 0) + 1
+        if (row.rating != null) {
+          const acc = ratingTotals.get(row.show_id) ?? { sum: 0, count: 0 }
+          acc.sum += Number(row.rating)
+          acc.count++
+          ratingTotals.set(row.show_id, acc)
         }
-        if ((page.data ?? []).length < 1000) break
+      }
+      const friendRatings: Record<number, ShowRating> = {}
+      for (const [showId, acc] of ratingTotals) {
+        friendRatings[showId] = { avg: acc.sum / acc.count, count: acc.count }
       }
 
       return {
@@ -520,6 +581,7 @@ export function useFriendData(username: string, enabled: boolean) {
         avatarUrl: prof.avatar_url ?? null,
         tracks: tracks.data ?? [],
         watchedCounts,
+        showRatings: friendRatings,
         ladderShows: prof.top10_shows ?? [],
         ladderMovies: prof.top10_movies ?? [],
         // movie_tracks may not exist pre-migration → error → treat as none
@@ -539,7 +601,7 @@ export function useFriendData(username: string, enabled: boolean) {
 
 /** My taste snapshot, assembled from the local stores + TVmaze details. */
 export function useMyTasteSnapshot(): { snapshot: TasteSnapshot; ready: boolean } {
-  const { shows, watched } = useLibrary()
+  const { shows, watched, ratings } = useLibrary()
   const { movies } = useMovies()
   const profile = useProfile()
 
@@ -560,6 +622,7 @@ export function useMyTasteSnapshot(): { snapshot: TasteSnapshot; ready: boolean 
         ),
         ladderShows: profile.top10Shows,
         ladderMovies: profile.top10Movies,
+        showRatings: showRatings(watched, ratings),
         movies: Object.values(movies).map((m) => ({
           id: m.id,
           title: m.title,
@@ -569,7 +632,7 @@ export function useMyTasteSnapshot(): { snapshot: TasteSnapshot; ready: boolean 
         })),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [shows, watched, movies, profile, detailQueries.map((q) => q.dataUpdatedAt).join(',')],
+    [shows, watched, ratings, movies, profile, detailQueries.map((q) => q.dataUpdatedAt).join(',')],
   )
   return { snapshot, ready }
 }
@@ -591,6 +654,7 @@ export function useFriendTasteSnapshot(username: string, enabled: boolean) {
       watchedCounts: d.watchedCounts,
       ladderShows: d.ladderShows,
       ladderMovies: d.ladderMovies,
+      showRatings: new Map(Object.entries(d.showRatings).map(([id, r]) => [Number(id), r])),
       movies: d.movies,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -153,3 +153,13 @@ export function ChevronLeftIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function EyeOffIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c5 0 9 4.5 9 8a10.4 10.4 0 0 1-2.1 3.4M6.6 6.6C4.4 8 3 10.2 3 12c0 3.5 4 8 9 8a9.7 9.7 0 0 0 4.4-1.05" />
+      <path d="M3 3l18 18" />
+    </svg>
+  )
+}

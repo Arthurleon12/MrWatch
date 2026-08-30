@@ -3,11 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteArticle, useArticles, type Article } from '../store/articles'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
-import { useArticleLikes } from '../queries'
+import { useArticleLikes, useSpoilerGuard } from '../queries'
 import { agoLabel } from '../lib/time'
 import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
 import { LikeButton } from '../components/LikeButton'
+import { SpoilerBlock, SpoilerText } from '../components/Spoiler'
 import { ChevronLeftIcon } from '../components/icons'
 
 export function ArticlePage() {
@@ -47,6 +48,11 @@ export function ArticlePage() {
   const likers = likeRows ?? []
   const liked = likers.some((r) => r.user_id === uid)
 
+  // deep links (a notification, a shared URL) reach this page without ever
+  // passing the gated card in the feed — so it gates here too
+  const spoilers = useSpoilerGuard(article ? [article.subject.showId] : [])
+  const spoils = article ? spoilers.hides(article.subject.showId, article.subject.epCode) : false
+
   if (!article && isLoading) {
     return <div className="px-4 pt-6"><div className="h-40 animate-pulse rounded-xl bg-surface" /></div>
   }
@@ -81,13 +87,15 @@ export function ArticlePage() {
           </span>
           <p className="truncate font-display text-sm font-bold">
             {subject.showName}
-            {subject.epName ? ` — ${subject.epName}` : ''}
+            {subject.epName && ' — '}
+            {subject.epName &&
+              (spoils ? <SpoilerText label="Episode title hidden">{subject.epName}</SpoilerText> : subject.epName)}
           </p>
         </div>
       </Link>
 
       <h1 className="mt-5 font-display text-2xl font-bold leading-tight" style={{ textWrap: 'balance' }}>
-        {article.title}
+        {spoils ? <SpoilerText label="Post title hidden">{article.title}</SpoilerText> : article.title}
       </h1>
       <p className="mt-1.5 text-xs text-ink-faint">
         by @{article.author} · {agoLabel(new Date(article.createdAt))}
@@ -113,9 +121,17 @@ export function ArticlePage() {
         </div>
       )}
 
-      <div className="mt-4 whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink">
-        {article.body}
-      </div>
+      {spoils ? (
+        <SpoilerBlock epCode={subject.epCode} className="mt-4">
+          <div className="mt-4 whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink">
+            {article.body}
+          </div>
+        </SpoilerBlock>
+      ) : (
+        <div className="mt-4 whitespace-pre-wrap text-[0.95rem] leading-relaxed text-ink">
+          {article.body}
+        </div>
+      )}
 
       {isMine && (
         <button
