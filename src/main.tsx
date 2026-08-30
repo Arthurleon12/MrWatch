@@ -22,7 +22,10 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { FriendsPage } from './pages/FriendsPage'
 import { ErrorBoundary, NotFoundPage, ScrollToTop } from './components/AppShell'
 import { initAuth } from './store/session'
+import { initErrorReporting } from './lib/report'
 
+// before anything else, so a crash during start-up is still reported
+initErrorReporting()
 initAuth()
 
 const queryClient = new QueryClient({

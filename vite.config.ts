@@ -16,8 +16,13 @@ export default defineConfig(({ mode }) => {
     )
   }
 
+  // Which deploy an error report came from. Vercel sets the commit sha on
+  // the build; locally it is just "dev".
+  const buildId = (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || 'dev'
+
   return {
     plugins: [react(), tailwindcss()],
     server: { port: 5173 },
+    define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(buildId) },
   }
 })

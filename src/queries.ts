@@ -463,6 +463,35 @@ export function useMyArticles(uid: string | undefined) {
   })
 }
 
+/**
+ * Your own error reports. RLS limits this to rows you filed, which is the
+ * point: Settings can show you exactly what the app has sent about you.
+ */
+export function useMyErrorReports(uid: string | undefined) {
+  return useQuery({
+    queryKey: ['my-errors', uid],
+    queryFn: async () => {
+      const { data, error } = await supabase!
+        .from('client_errors')
+        .select('id, kind, message, route, created_at')
+        .eq('user_id', uid!)
+        .order('created_at', { ascending: false })
+        .limit(5)
+      // the table may not exist yet (migration unrun) — that is not a crash
+      if (error) return []
+      return (data ?? []) as {
+        id: string
+        kind: string
+        message: string
+        route: string | null
+        created_at: string
+      }[]
+    },
+    enabled: !!supabase && !!uid,
+    staleTime: 60 * 1000,
+  })
+}
+
 /* ------------------------------ spoiler guard ----------------------------- */
 
 /**

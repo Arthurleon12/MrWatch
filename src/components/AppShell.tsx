@@ -1,5 +1,6 @@
-import { Component, useEffect, type ReactNode } from 'react'
+import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { reportError } from '../lib/report'
 
 /**
  * Crash + navigation safety net. In installed (standalone) mode there is no
@@ -13,8 +14,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { crashed:
     return { crashed: true }
   }
 
-  componentDidCatch(error: unknown) {
-    console.error('[mrwatch] render crash', error)
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    // the component stack is the useful half — it names the screen that broke
+    reportError('render', error, { detail: info.componentStack ?? undefined })
   }
 
   render() {

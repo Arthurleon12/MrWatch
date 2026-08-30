@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { fetchAllPages, type PageResult } from './paginate'
+import { reportError } from './report'
 import { onStoreChange, type StoreName } from './bus'
 import { getLibraryState, hydrateLibrary } from '../store/library'
 import { getMoviesState, hydrateMovies, type MovieStatus, type TrackedMovie } from '../store/movies'
@@ -49,8 +50,10 @@ async function push(store: StoreName) {
     if (store === 'profile') await pushProfile(session.user.id)
     if (store === 'articles') await pushArticles(session.user.id)
   } catch (err) {
-    // transient network failures self-heal on the next mutation; log for dev
-    console.warn(`[sync] push ${store} failed`, err)
+    // A push failure is the most dangerous silent failure in the app: the
+    // device looks fine while the cloud drifts out of date. Never let one
+    // pass with only a console line nobody is reading.
+    reportError('sync', err, { detail: `push ${store}` })
   }
 }
 
@@ -290,7 +293,8 @@ export async function pullAndHydrate(uid: string, seedLocal = false) {
   }
 
   if (tracksRes.error || watchedRes.error) {
-    console.warn('[sync] pull library failed', tracksRes.error ?? watchedRes.error)
+    // a failed pull is what a truncated history looked like — hear about it
+    reportError('sync', tracksRes.error ?? watchedRes.error, { detail: 'pull library' })
   } else {
     const tracks = tracksRes.data ?? []
     if (tracks.length > 0) {
@@ -345,7 +349,7 @@ export async function pullAndHydrate(uid: string, seedLocal = false) {
   }
 
   if (articlesRes.error) {
-    console.warn('[sync] pull articles failed', articlesRes.error)
+    reportError('sync', articlesRes.error, { detail: 'pull articles' })
   } else {
     const remoteArticles = articlesRes.data ?? []
     if (remoteArticles.length > 0) {

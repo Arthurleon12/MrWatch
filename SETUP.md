@@ -115,6 +115,23 @@ encrypts it, and stores it as a build artifact for 90 days. To activate:
 
 Restore instructions are in the workflow file header.
 
+## 9. Error reporting — ~1 min (one SQL run)
+
+Production failures happen in someone else's browser, where nothing else can see
+them. The app reports crashes, unhandled rejections and — most importantly —
+**silent sync failures** (the class of bug that lost watch history in August) to a
+`client_errors` table.
+
+Open Supabase → **SQL Editor → New query** and run
+[`supabase/migrations/2026-08-30-error-log.sql`](supabase/migrations/2026-08-30-error-log.sql)
+once. Until you do, the app notices the table is missing and quietly stops trying —
+nothing breaks either way.
+
+Read the reports in **Table editor → client_errors** (the dashboard sees every row;
+users only ever see their own, in Settings → Diagnostics). What's stored: what broke,
+which screen it happened on as a route *pattern* (`/u/:username`, never the actual
+profile), the build it came from, and the browser. No page content, no usernames.
+
 ## What your friends experience
 
 Open the link → Continue with Google (or email link) → pick a unique @username →

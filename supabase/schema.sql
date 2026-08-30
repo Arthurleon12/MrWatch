@@ -63,6 +63,8 @@ create table public.watched (
   show_id integer not null,
   episode_id integer not null,
   watched_at timestamptz not null default now(),
+  -- what you thought of it: 1-10, one decimal, feeds the taste engine
+  rating numeric(3,1) check (rating is null or (rating >= 1 and rating <= 10)),
   primary key (user_id, episode_id)
 );
 create index watched_by_show on public.watched (user_id, show_id);
@@ -193,6 +195,7 @@ alter table public.follows enable row level security;
 alter table public.articles enable row level security;
 alter table public.likes enable row level security;
 alter table public.notifications enable row level security;
+alter table public.client_errors enable row level security;
 
 create policy "profiles are readable by members"
   on public.profiles for select to authenticated using (true);
@@ -246,6 +249,40 @@ create policy "mark own notifications read"
   using (recipient_id = auth.uid()) with check (recipient_id = auth.uid());
 create policy "clear own notifications"
   on public.notifications for delete to authenticated using (recipient_id = auth.uid());
+
+-- A crash on the auth screen is exactly the kind we most need to hear about,
+-- so anonymous reports are allowed — but never under someone else's id, and
+-- reads are limited to your own rows so this can't be used to stash data.
+create policy "anyone can report an error"
+  on public.client_errors for insert to anon, authenticated
+  with check (user_id is null or user_id = auth.uid());
+create policy "read only your own reports"
+  on public.client_errors for select to authenticated
+  using (user_id = auth.uid());
+
+-- ---------------------------------------------------------------------------
+-- client_errors: crashes and silent failures from real browsers
+-- ---------------------------------------------------------------------------
+create table public.client_errors (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users (id) on delete set null,
+  kind text not null,
+  message text not null,
+  stack text,
+  -- the route PATTERN ("/u/:username"), never the filled-in path
+  route text,
+  build text,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  constraint client_errors_kind_check
+    check (kind in ('render', 'unhandled', 'rejection', 'sync', 'manual')),
+  constraint client_errors_message_len check (char_length(message) between 1 and 500),
+  constraint client_errors_stack_len check (stack is null or char_length(stack) <= 4000),
+  constraint client_errors_route_len check (route is null or char_length(route) <= 120),
+  constraint client_errors_build_len check (build is null or char_length(build) <= 40),
+  constraint client_errors_agent_len check (user_agent is null or char_length(user_agent) <= 400)
+);
+create index client_errors_recent on public.client_errors (created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- Account deletion (App Store requires in-app deletion; good practice anyway)

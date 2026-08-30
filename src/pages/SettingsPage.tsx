@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useMyErrorReports } from '../queries'
+import { agoLabel } from '../lib/time'
 import { hasBuiltInTmdbKey, updateSettings, useSettings } from '../store/settings'
 import { tmdbKeyWorks } from '../api/tmdb'
 import { backendReady } from '../lib/supabase'
@@ -50,6 +52,8 @@ export function SettingsPage() {
         )}
       </section>
 
+      {signedIn && <Diagnostics uid={session!.user.id} />}
+
       {/* required data attributions — see TMDB API terms and TVmaze (CC BY-SA) */}
       <section className="mt-8">
         <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">About</h2>
@@ -71,6 +75,38 @@ export function SettingsPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+/**
+ * What the app has reported about crashes on this account. Shown because
+ * anything sent on someone's behalf should be visible to them — and because
+ * it answers "did that get logged?" without opening a database.
+ */
+function Diagnostics({ uid }: { uid: string }) {
+  const { data: reports } = useMyErrorReports(uid)
+  if (!reports || reports.length === 0) return null
+  return (
+    <section className="mt-8">
+      <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Diagnostics</h2>
+      <p className="mt-2 text-xs leading-relaxed text-ink-soft">
+        Crashes MrWatch reported from your account, so they can be fixed. No page content and
+        no one's name — just what broke and on which screen.
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        {reports.map((r) => (
+          <div key={r.id} className="rounded-xl bg-surface p-3">
+            <p className="flex items-baseline justify-between gap-2 text-[0.62rem] font-bold uppercase tracking-wider">
+              <span className="text-accent">{r.kind}</span>
+              <span className="font-medium normal-case tracking-normal text-ink-faint">
+                {r.route ?? '—'} · {agoLabel(new Date(r.created_at))}
+              </span>
+            </p>
+            <p className="mt-1 break-words text-xs text-ink-soft">{r.message}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 
