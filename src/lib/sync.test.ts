@@ -70,7 +70,14 @@ vi.mock('../store/session', () => ({
   getSession: () => (db.uid ? { user: { id: db.uid } } : null),
 }))
 
-import { clearLocalData, flushSync, pullAndHydrate, startSync, stopSync } from './sync'
+import {
+  clearLocalData,
+  flushSync,
+  hasUnsyncedChanges,
+  pullAndHydrate,
+  startSync,
+  stopSync,
+} from './sync'
 import { getLibraryState, setEpisodeWatched, trackShow, untrackShow } from '../store/library'
 import { makeShow } from '../test/fixtures'
 
@@ -238,6 +245,26 @@ describe('first sync of a new account', () => {
     await settle()
     expect(getLibraryState().watched[7]).toEqual([1])
     expect(cloudEpisodes(A)).toEqual([1])
+  })
+})
+
+describe('unsynced changes', () => {
+  it('reports them until a push carrying them succeeds — sign-out relies on this', async () => {
+    seedCloud(A, 7, [1, 2])
+    await pullAndHydrate(A)
+    expect(hasUnsyncedChanges(A)).toBe(false)
+
+    db.fail.add('upsert:watched')
+    setEpisodeWatched(7, 3, true)
+    expect(hasUnsyncedChanges(A)).toBe(true)
+    await settle()
+    expect(hasUnsyncedChanges(A)).toBe(true) // the push failed: still not safe to wipe
+
+    db.fail.clear()
+    setEpisodeWatched(7, 4, true)
+    await settle()
+    expect(hasUnsyncedChanges(A)).toBe(false)
+    expect(cloudEpisodes(A)).toEqual([1, 2, 3, 4])
   })
 })
 

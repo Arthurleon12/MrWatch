@@ -78,6 +78,12 @@ function SignIn() {
   const emailReady = email.includes('@')
   const codeReady = code.trim().length >= 6
 
+  async function startProvider(provider: 'google' | 'apple') {
+    setError(null)
+    const err = await signInWithProvider(provider)
+    if (err) setError(err)
+  }
+
   async function sendLink(event: FormEvent) {
     event.preventDefault()
     if (!emailReady || sending) return
@@ -122,7 +128,7 @@ function SignIn() {
       <div className="mt-8 flex flex-col gap-3">
         <button
           type="button"
-          onClick={() => signInWithProvider('google')}
+          onClick={() => void startProvider('google')}
           className="rounded-full bg-ink py-3 font-display text-sm font-bold text-bg"
         >
           Continue with Google
@@ -130,7 +136,7 @@ function SignIn() {
         {APPLE_LOGIN_READY && (
           <button
             type="button"
-            onClick={() => signInWithProvider('apple')}
+            onClick={() => void startProvider('apple')}
             className="rounded-full bg-ink py-3 font-display text-sm font-bold text-bg"
           >
             Continue with Apple
