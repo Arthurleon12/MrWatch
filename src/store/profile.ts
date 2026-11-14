@@ -73,7 +73,13 @@ let hydrating = false
 
 function commit(next: ProfileState) {
   state = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch (err) {
+    // storage full or blocked: keep working from memory. Listeners and sync
+    // must still run, or every later edit in this store would go unsynced.
+    console.warn('[profile] could not persist to this device', err)
+  }
   listeners.forEach((l) => l())
   if (!hydrating) emitStoreChange('profile')
 }
@@ -85,8 +91,11 @@ export function getProfileState(): ProfileState {
 /** Replace local state with the cloud copy — never triggers a push. */
 export function hydrateProfile(next: ProfileState) {
   hydrating = true
-  commit(next)
-  hydrating = false
+  try {
+    commit(next)
+  } finally {
+    hydrating = false
+  }
 }
 
 /** Back to the on-device defaults (used on sign-out) — never pushes. */

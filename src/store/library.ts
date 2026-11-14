@@ -24,8 +24,16 @@ function load(): LibraryState {
     const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY)
     if (raw) {
       // states saved before ratings existed lack the map — default it in
-      const parsed = JSON.parse(raw) as LibraryState
-      return { ...parsed, ratings: parsed.ratings ?? {} }
+      const parsed = JSON.parse(raw) as Partial<LibraryState> | null
+      const isMap = (v: unknown): v is Record<number, never> =>
+        typeof v === 'object' && v !== null && !Array.isArray(v)
+      if (parsed && isMap(parsed.shows) && isMap(parsed.watched)) {
+        return {
+          shows: parsed.shows,
+          watched: parsed.watched,
+          ratings: isMap(parsed.ratings) ? parsed.ratings : {},
+        }
+      }
     }
   } catch {
     // corrupted state — start fresh rather than crash
@@ -39,7 +47,13 @@ let hydrating = false
 
 function commit(next: LibraryState) {
   state = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch (err) {
+    // storage full or blocked: keep working from memory. Listeners and sync
+    // must still run, or every later edit in this store would go unsynced.
+    console.warn('[library] could not persist to this device', err)
+  }
   listeners.forEach((l) => l())
   if (!hydrating) emitStoreChange('library')
 }
@@ -51,8 +65,11 @@ export function getLibraryState(): LibraryState {
 /** Replace local state with the cloud copy — never triggers a push. */
 export function hydrateLibrary(next: LibraryState) {
   hydrating = true
-  commit(next)
-  hydrating = false
+  try {
+    commit(next)
+  } finally {
+    hydrating = false
+  }
 }
 
 function subscribe(listener: () => void) {

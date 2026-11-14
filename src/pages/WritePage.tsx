@@ -5,10 +5,12 @@ import { addArticle } from '../store/articles'
 import { useProfile } from '../store/profile'
 import { useShow } from '../queries'
 import { epCode, hasAired } from '../lib/time'
+import { useBack } from '../lib/useBack'
 import { ChevronLeftIcon } from '../components/icons'
 
 export function WritePage() {
   const navigate = useNavigate()
+  const goBack = useBack('/foryou')
   const { shows } = useLibrary()
   const profile = useProfile()
 
@@ -48,9 +50,9 @@ export function WritePage() {
   return (
     <div className="px-4 pt-4">
       <button
-        onClick={() => navigate(-1)}
+        onClick={goBack}
         aria-label="Back"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+        className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
       >
         <ChevronLeftIcon className="h-5 w-5" />
       </button>
@@ -104,6 +106,7 @@ export function WritePage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Title"
+          aria-label="Title"
           maxLength={120}
           className="rounded-lg bg-surface px-3 py-3 font-display text-base font-bold outline-none placeholder:font-normal placeholder:text-ink-faint"
         />
@@ -112,6 +115,8 @@ export function WritePage() {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           placeholder="Your take…"
+          aria-label="Your take"
+          aria-describedby="publish-hint"
           rows={10}
           className="resize-none rounded-lg bg-surface px-3 py-3 text-sm leading-relaxed outline-none placeholder:text-ink-faint"
         />
@@ -123,6 +128,16 @@ export function WritePage() {
         >
           Publish to your feed
         </button>
+        {/* a disabled button with no reason reads as broken */}
+        {tracked.length > 0 && !canPublish && (
+          <p id="publish-hint" className="text-center text-xs text-ink-faint">
+            {!selected
+              ? 'Pick the show this is about.'
+              : title.trim().length < 3
+                ? 'Add a title (3+ characters).'
+                : `A little more — ${20 - body.trim().length} more characters to publish.`}
+          </p>
+        )}
         {tracked.length === 0 && (
           <p className="text-center text-xs text-ink-faint">
             Track a show first — articles are always pinned to a show.

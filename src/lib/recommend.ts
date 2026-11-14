@@ -28,8 +28,20 @@ export interface ScoredShow {
   show: TvmShow & { rating?: { average: number | null } }
   /** 0–100, honest label for genre+network fit */
   match: number
+  /** unrounded fit behind `match` — the sort key, so near-ties keep their order */
+  score: number
   /** e.g. "Because you watch Slow Horses" or "Drama · Thriller" */
   because: string
+}
+
+/**
+ * Extra taste weight for a ladder spot: #1 earns the most, #10 the least.
+ * Anything outside the ten rungs earns nothing — a ladder that arrives longer
+ * than ten (it is unconstrained JSON in the database) must never turn a
+ * weight negative.
+ */
+export function ladderBonus(ladderIndex: number): number {
+  return ladderIndex >= 0 && ladderIndex < 10 ? (10 - ladderIndex) / 3 : 0
 }
 
 interface EngagementInputs {
@@ -60,8 +72,7 @@ export function buildTasteProfile({
     // tracking alone counts for 1; deep watching and a high ladder spot count
     // for more; what you scored the episodes scales the whole thing
     const weight =
-      (1 + Math.log2(1 + watchedCount) + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0)) *
-      affinityMultiplier(rating)
+      (1 + Math.log2(1 + watchedCount) + ladderBonus(ladderIndex)) * affinityMultiplier(rating)
 
     seeds.push({ id: show.id, name: show.name, genres: show.genres, weight, rating })
     for (const g of show.genres) genres.set(g, (genres.get(g) ?? 0) + weight)
@@ -127,7 +138,7 @@ export function scoreShow(candidate: TvmShow, profile: TasteProfile): ScoredShow
       : `Because you watch ${bestSeed.name}`
     : candidate.genres.slice(0, 2).join(' · ') || 'Popular now'
 
-  return { show: candidate, match, because }
+  return { show: candidate, match, score, because }
 }
 
 /** Formats that don't belong in a scripted-taste feed. */
@@ -157,5 +168,7 @@ export function rankCandidates(
     seen.add(c.id)
     scored.push(scoreShow(c, profile))
   }
-  return scored.sort((a, b) => b.match - a.match).slice(0, limit)
+  // the raw score, not the rounded label: two shows that both read "79%" are
+  // still ordered by which one actually fits better
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit)
 }

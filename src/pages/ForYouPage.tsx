@@ -25,6 +25,7 @@ import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { buildTasteProfile, rankCandidates } from '../lib/recommend'
 import { showRatings } from '../lib/ratings'
 import { agoLabel } from '../lib/time'
+import { cleanSubject } from '../lib/sanitize'
 import { Poster } from '../components/Poster'
 import { SpoilerBlock, SpoilerText } from '../components/Spoiler'
 import { BellIcon, PencilIcon, UserIcon } from '../components/icons'
@@ -50,6 +51,31 @@ interface FeedArticle {
   createdAt: number
 }
 
+/**
+ * The fetch boundary for feed rows. One article with a malformed `subject`
+ * used to throw during render and blank the feed for everyone who loaded
+ * it — so a row that can't be rendered safely is dropped here instead.
+ */
+function toFeedArticle(row: {
+  id: unknown
+  title: unknown
+  body: unknown
+  subject: unknown
+  author: unknown
+  createdAt: number
+}): FeedArticle | null {
+  const subject = cleanSubject(row.subject)
+  if (!subject || typeof row.id !== 'string') return null
+  return {
+    id: row.id,
+    title: typeof row.title === 'string' ? row.title : '',
+    body: typeof row.body === 'string' ? row.body : '',
+    subject,
+    author: typeof row.author === 'string' && row.author ? row.author : 'someone',
+    createdAt: Number.isFinite(row.createdAt) ? row.createdAt : Date.now(),
+  }
+}
+
 export function ForYouPage() {
   const { shows: tracked, watched, ratings } = useLibrary()
   const { movies: savedMovies } = useMovies()
@@ -60,29 +86,48 @@ export function ForYouPage() {
   const [lens, setLens] = useState<Lens>('all')
 
   const signedIn = !!session && profileStatus === 'ready'
-  const { data: communityArticles } = useQuery({
+  const {
+    data: communityArticles,
+    isError: feedFailed,
+    refetch: refetchFeed,
+  } = useQuery({
     queryKey: ['feed-articles'],
     queryFn: async (): Promise<FeedArticle[]> => {
-      const { data } = await supabase!
+      const { data, error } = await supabase!
         .from('articles')
         .select('id, title, body, subject, created_at, profiles(username)')
         .order('created_at', { ascending: false })
         .limit(25)
-      return (data ?? []).map((a) => ({
-        id: a.id,
-        title: a.title,
-        body: a.body,
-        subject: a.subject,
-        author: (a.profiles as unknown as { username: string })?.username ?? 'someone',
-        createdAt: new Date(a.created_at).getTime(),
-      }))
+      // a failed fetch is not an empty feed — surface it so the page can retry
+      if (error) throw new Error(error.message)
+      return (data ?? []).flatMap((a) => {
+        const article = toFeedArticle({
+          id: a.id,
+          title: a.title,
+          body: a.body,
+          subject: a.subject,
+          author: (a.profiles as unknown as { username?: unknown } | null)?.username,
+          createdAt: new Date(a.created_at).getTime(),
+        })
+        return article ? [article] : []
+      })
     },
     enabled: signedIn,
     staleTime: 60 * 1000,
   })
 
-  // signed in: everyone's articles (friends & family feed); local mode: your own
-  const articles: FeedArticle[] = signedIn && communityArticles ? communityArticles : localArticles
+  // signed in: everyone's articles (friends & family feed); local mode: your own.
+  // Local rows are hydrated from the cloud too, so they get the same check.
+  const articles: FeedArticle[] = useMemo(
+    () =>
+      signedIn && communityArticles
+        ? communityArticles
+        : localArticles.flatMap((a) => {
+            const article = toFeedArticle(a)
+            return article ? [article] : []
+          }),
+    [signedIn, communityArticles, localArticles],
+  )
 
   const uid = session?.user.id
   const { data: unread } = useUnreadCount(signedIn ? uid : undefined)
@@ -176,11 +221,11 @@ export function ForYouPage() {
             <Link
               to="/notifications"
               aria-label={`Notifications${unread ? ` — ${unread} unread` : ''}`}
-              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+              className="relative flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
             >
               <BellIcon className="h-4.5 w-4.5" />
               {(unread ?? 0) > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 font-display text-[0.6rem] font-bold text-bg tabular-nums">
+                <span className="absolute -right-0.5 -top-0.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-accent px-1 font-display text-[0.6875rem] font-bold text-bg tabular-nums">
                   {unread! > 9 ? '9+' : unread}
                 </span>
               )}
@@ -188,7 +233,7 @@ export function ForYouPage() {
           )}
           <Link
             to="/write"
-            className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-2 font-display text-xs font-bold text-bg"
+            className="flex min-h-11 items-center gap-1.5 rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
           >
             <PencilIcon className="h-3.5 w-3.5" />
             Write
@@ -208,7 +253,8 @@ export function ForYouPage() {
           <button
             key={value}
             onClick={() => setLens(value)}
-            className={`rounded-full px-3.5 py-1.5 font-display text-xs font-bold transition-colors ${
+            aria-pressed={lens === value}
+            className={`min-h-11 rounded-full px-3.5 font-display text-xs font-bold transition-colors ${
               lens === value ? 'bg-accent text-bg' : 'bg-surface text-ink-soft'
             }`}
           >
@@ -217,7 +263,7 @@ export function ForYouPage() {
         ))}
       </div>
       {!tmdbKey && (
-        <p className="mt-2 text-[0.68rem] text-ink-faint">
+        <p className="mt-2 text-[0.6875rem] text-ink-faint">
           Movies join the mix once the TMDB catalog is connected.
         </p>
       )}
@@ -235,7 +281,7 @@ export function ForYouPage() {
                 <div key={e.key} className="flex items-center gap-3 rounded-xl bg-surface p-2.5">
                   <Link to={`/u/${e.username}`} className="h-9 w-9 flex-none overflow-hidden rounded-full bg-raised">
                     {e.avatarUrl ? (
-                      <img src={e.avatarUrl} alt="" className="h-full w-full object-cover" />
+                      <img src={e.avatarUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     ) : (
                       <span className="flex h-full w-full items-center justify-center text-ink-faint">
                         <UserIcon className="h-4 w-4" />
@@ -286,7 +332,17 @@ export function ForYouPage() {
         <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">
           Articles
         </h2>
-        {articles.length === 0 ? (
+        {signedIn && feedFailed && !communityArticles ? (
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-line bg-surface p-3">
+            <p className="text-xs text-ink-soft">Couldn't load the feed — check your connection.</p>
+            <button
+              onClick={() => void refetchFeed()}
+              className="min-h-11 flex-none rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
+            >
+              Retry
+            </button>
+          </div>
+        ) : articles.length === 0 ? (
           <div className="mt-2 rounded-xl bg-surface p-4">
             <p className="text-sm text-ink-soft">
               No articles yet. Write the first one — a review, a theory, a ranking — and it lands
@@ -299,38 +355,59 @@ export function ForYouPage() {
               const spoils = spoilers.hides(a.subject.showId, a.subject.epCode)
               const preview = a.body.length > 140 ? `${a.body.slice(0, 140).trimEnd()}…` : a.body
               return (
-              <Link key={a.id} to={`/article/${a.id}`} className="block rounded-xl bg-surface p-3">
-                <span className="flex items-center gap-2">
-                  <Poster src={a.subject.image} alt="" className="h-14 w-10 flex-none rounded-md" />
-                  <span className="min-w-0">
-                    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 font-display text-[0.62rem] font-bold uppercase tracking-wider text-accent">
-                      <span className="truncate">
-                        {a.subject.epCode
-                          ? `${a.subject.showName} · ${a.subject.epCode}`
-                          : a.subject.showName}
-                      </span>
-                    </span>
-                    <span className="mt-1.5 block truncate font-display text-sm font-bold text-ink">
-                      {spoils ? <SpoilerText label="Post title hidden">{a.title}</SpoilerText> : a.title}
-                    </span>
-                    <span className="block text-xs text-ink-faint">
-                      @{a.author} · {agoLabel(new Date(a.createdAt))}
-                    </span>
-                  </span>
-                </span>
-                {spoils ? (
-                  <SpoilerBlock epCode={a.subject.epCode} className="mt-2">
-                    <span className="mt-2 block text-sm leading-snug text-ink-soft">{preview}</span>
-                  </SpoilerBlock>
-                ) : (
-                  <span className="mt-2 block text-sm leading-snug text-ink-soft">{preview}</span>
-                )}
-                {signedIn && uid && (
-                  <span className="mt-2.5 flex items-center">
-                    <LikeButton articleId={a.id} uid={uid} {...likesFor(a.id)} />
-                  </span>
-                )}
-              </Link>
+                // The whole card opens the article through one stretched link.
+                // The like button and spoiler controls sit above it instead of
+                // inside it — a button nested in a link is invalid and unreliable
+                // for assistive tech.
+                <article key={a.id} className="relative rounded-xl bg-surface p-3">
+                  <Link
+                    to={`/article/${a.id}`}
+                    aria-label={
+                      spoils
+                        ? `Post about ${a.subject.showName} by @${a.author} — title hidden`
+                        : `${a.title} — by @${a.author}`
+                    }
+                    className="absolute inset-0 rounded-xl"
+                  />
+                  <div className="pointer-events-none relative">
+                    <div className="flex items-center gap-2">
+                      <Poster src={a.subject.image} alt="" className="h-14 w-10 flex-none rounded-md" />
+                      <div className="min-w-0">
+                        <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-raised px-2.5 py-1 font-display text-[0.6875rem] font-bold uppercase tracking-wider text-accent">
+                          <span className="truncate">
+                            {a.subject.epCode
+                              ? `${a.subject.showName} · ${a.subject.epCode}`
+                              : a.subject.showName}
+                          </span>
+                        </span>
+                        <p className="mt-1.5 truncate font-display text-sm font-bold text-ink">
+                          {spoils ? (
+                            <SpoilerText label="Post title hidden" className="pointer-events-auto">
+                              {a.title}
+                            </SpoilerText>
+                          ) : (
+                            a.title
+                          )}
+                        </p>
+                        <p className="text-xs text-ink-faint">
+                          @{a.author} · {agoLabel(new Date(a.createdAt))}
+                        </p>
+                      </div>
+                    </div>
+                    {spoils ? (
+                      <SpoilerBlock epCode={a.subject.epCode} className="pointer-events-auto mt-2">
+                        <p className="mt-2 text-sm leading-snug text-ink-soft">{preview}</p>
+                      </SpoilerBlock>
+                    ) : (
+                      <p className="mt-2 text-sm leading-snug text-ink-soft">{preview}</p>
+                    )}
+                    {signedIn && uid && (
+                      <div className="pointer-events-auto mt-2.5 flex w-fit items-center">
+                        <LikeButton articleId={a.id} uid={uid} {...likesFor(a.id)} />
+                      </div>
+                    )}
+                  </div>
+                </article>
               )
             })}
           </div>
@@ -351,9 +428,9 @@ export function ForYouPage() {
                   .map((show) => (
                     <Link key={show.id} to={`/show/${show.id}`} className="w-24 flex-none">
                       <Poster src={show.image?.medium} alt="" className="h-34 w-24 rounded-lg" />
-                      <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{show.name}</p>
+                      <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{show.name}</p>
                       {show.rating?.average && (
-                        <p className="text-[0.62rem] text-ink-faint">★ {show.rating.average.toFixed(1)}</p>
+                        <p className="text-[0.6875rem] text-ink-faint">★ {show.rating.average.toFixed(1)}</p>
                       )}
                     </Link>
                   ))}
@@ -382,7 +459,7 @@ export function ForYouPage() {
         <h2 className="font-display text-xs font-bold uppercase tracking-[0.15em] text-ink-faint">
           {trackedIdList.length > 0 ? 'Top picks for you' : 'Releasing this week'}
         </h2>
-        <p className="mt-1 text-[0.68rem] text-ink-faint">
+        <p className="mt-1 text-[0.6875rem] text-ink-faint">
           New and returning shows this week, matched to your taste.
         </p>
 
@@ -393,7 +470,7 @@ export function ForYouPage() {
             <p className="text-xs text-ink-soft">Couldn't load this week's releases — check your connection.</p>
             <button
               onClick={() => windowErrored.forEach((q) => void q.refetch())}
-              className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+              className="min-h-11 flex-none rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
             >
               Retry
             </button>
@@ -410,7 +487,7 @@ export function ForYouPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-start justify-between gap-2">
                   <p className="min-w-0 truncate font-display text-sm font-bold">{show.name}</p>
-                  <span className="flex-none rounded-full bg-raised px-2 py-0.5 font-display text-[0.62rem] font-bold text-accent tabular-nums">
+                  <span className="flex-none rounded-full bg-raised px-2 py-0.5 font-display text-[0.6875rem] font-bold text-accent tabular-nums">
                     {match}% match
                   </span>
                 </div>
@@ -424,7 +501,7 @@ export function ForYouPage() {
                     .join(' · ')}
                 </p>
                 <p className="mt-1 line-clamp-2 text-xs leading-snug text-ink-soft">{snippet(show)}</p>
-                <p className="mt-1 truncate text-[0.65rem] font-medium text-accent/80">{because}</p>
+                <p className="mt-1 truncate text-[0.6875rem] font-medium text-accent">{because}</p>
               </div>
             </Link>
           ))}
@@ -441,9 +518,9 @@ export function ForYouPage() {
             {freshMovies(nowPlaying).map((movie) => (
               <Link key={movie.id} to={`/movie/${movie.id}`} className="w-24 flex-none">
                 <Poster src={tmdbImage(movie.poster_path, 'w154')} alt="" kind="movie" className="h-34 w-24 rounded-lg" />
-                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{movie.title}</p>
+                <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{movie.title}</p>
                 {movie.vote_average > 0 && (
-                  <p className="text-[0.62rem] text-ink-faint">★ {movie.vote_average.toFixed(1)}</p>
+                  <p className="text-[0.6875rem] text-ink-faint">★ {movie.vote_average.toFixed(1)}</p>
                 )}
               </Link>
             ))}
@@ -461,9 +538,9 @@ export function ForYouPage() {
             {freshMovies(movieRecs).map((movie) => (
               <Link key={movie.id} to={`/movie/${movie.id}`} className="w-24 flex-none">
                 <Poster src={tmdbImage(movie.poster_path, 'w154')} alt="" kind="movie" className="h-34 w-24 rounded-lg" />
-                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{movie.title}</p>
+                <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{movie.title}</p>
                 {movie.vote_average > 0 && (
-                  <p className="text-[0.62rem] text-ink-faint">★ {movie.vote_average.toFixed(1)}</p>
+                  <p className="text-[0.6875rem] text-ink-faint">★ {movie.vote_average.toFixed(1)}</p>
                 )}
               </Link>
             ))}

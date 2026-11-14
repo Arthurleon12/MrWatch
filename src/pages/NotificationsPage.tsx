@@ -1,15 +1,17 @@
 import { useEffect } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import { useNotifications } from '../queries'
 import { agoLabel } from '../lib/time'
+import { useBack } from '../lib/useBack'
+import { AuthRedirect, PageSkeleton } from '../components/AppShell'
 import { ChevronLeftIcon, HeartIcon, UserIcon } from '../components/icons'
 
 /** The bell feed: who followed you, who liked your posts — Insta-style. */
 export function NotificationsPage() {
-  const navigate = useNavigate()
+  const goBack = useBack('/foryou')
   const { session, initializing } = useSession()
   const uid = session?.user.id
   const queryClient = useQueryClient()
@@ -29,17 +31,15 @@ export function NotificationsPage() {
   }, [items, uid, queryClient])
 
   if (!supabase) return <Navigate to="/" replace />
-  if (initializing) {
-    return <div className="px-4 pt-6"><div className="h-40 animate-pulse rounded-xl bg-surface" /></div>
-  }
-  if (!session) return <Navigate to="/auth" replace />
+  if (initializing) return <PageSkeleton />
+  if (!session) return <AuthRedirect />
 
   return (
     <div className="px-4 pt-4">
       <button
-        onClick={() => navigate(-1)}
+        onClick={goBack}
         aria-label="Back"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+        className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
       >
         <ChevronLeftIcon className="h-5 w-5" />
       </button>
@@ -52,7 +52,7 @@ export function NotificationsPage() {
           <p className="text-xs text-ink-soft">Couldn't load notifications — check your connection.</p>
           <button
             onClick={() => void refetch()}
-            className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+            className="min-h-11 flex-none rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
           >
             Retry
           </button>
@@ -81,7 +81,7 @@ export function NotificationsPage() {
             >
               <span className="h-10 w-10 flex-none overflow-hidden rounded-full bg-raised">
                 {n.actor.avatarUrl ? (
-                  <img src={n.actor.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  <img src={n.actor.avatarUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-ink-faint">
                     <UserIcon className="h-5 w-5" />
@@ -100,7 +100,11 @@ export function NotificationsPage() {
                 <span className="block text-xs text-ink-faint">{agoLabel(new Date(n.createdAt))}</span>
               </span>
               {n.type === 'like' && <HeartIcon filled className="h-4 w-4 flex-none text-accent" />}
-              {!n.read && <span className="h-2 w-2 flex-none rounded-full bg-accent" />}
+              {!n.read && (
+                <span className="h-2 w-2 flex-none rounded-full bg-accent">
+                  <span className="sr-only">Unread</span>
+                </span>
+              )}
             </Link>
           )
         })}

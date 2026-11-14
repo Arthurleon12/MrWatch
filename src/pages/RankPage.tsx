@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useLibrary } from '../store/library'
 import { useMovies } from '../store/movies'
 import {
@@ -9,6 +9,7 @@ import {
   type Top10Show,
 } from '../store/profile'
 import { showRatings } from '../lib/ratings'
+import { useBack } from '../lib/useBack'
 import { Poster } from '../components/Poster'
 import { ChevronLeftIcon } from '../components/icons'
 
@@ -23,7 +24,6 @@ type Kind = 'show' | 'movie'
 export function RankPage({ kind }: { kind: Kind }) {
   const { id } = useParams()
   const itemId = Number(id)
-  const navigate = useNavigate()
   const { shows, watched, ratings } = useLibrary()
   const { movies } = useMovies()
   const profile = useProfile()
@@ -46,6 +46,7 @@ export function RankPage({ kind }: { kind: Kind }) {
   const saveLadder = kind === 'show' ? setTop10Shows : setTop10Movies
   const itemPath = kind === 'show' ? `/show/${itemId}` : `/movie/${itemId}`
   const noun = kind === 'show' ? 'show' : 'movie'
+  const goBack = useBack(itemPath)
 
   // Freeze the starting ladder (minus this item, so re-ranking works).
   const [ladder] = useState<Top10Show[]>(() => fullLadder.filter((s) => s.id !== itemId))
@@ -107,13 +108,13 @@ export function RankPage({ kind }: { kind: Kind }) {
         <div className="mt-6 flex gap-3">
           <Link
             to="/profile"
-            className="rounded-full bg-accent px-5 py-2.5 font-display text-xs font-bold text-bg"
+            className="flex min-h-11 items-center rounded-full bg-accent px-5 font-display text-xs font-bold text-bg"
           >
             See your Top 10
           </Link>
           <button
-            onClick={() => navigate(-1)}
-            className="rounded-full bg-surface px-5 py-2.5 font-display text-xs font-bold text-ink-soft"
+            onClick={goBack}
+            className="min-h-11 rounded-full bg-surface px-5 font-display text-xs font-bold text-ink-soft"
           >
             Done
           </button>
@@ -133,9 +134,9 @@ export function RankPage({ kind }: { kind: Kind }) {
   return (
     <div className="px-4 pt-4">
       <button
-        onClick={() => navigate(-1)}
+        onClick={goBack}
         aria-label="Cancel ranking"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+        className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
       >
         <ChevronLeftIcon className="h-5 w-5" />
       </button>
@@ -161,7 +162,7 @@ export function RankPage({ kind }: { kind: Kind }) {
                 {item.name}
               </span>
               {score && (
-                <span className="font-display text-[0.68rem] font-bold text-accent">
+                <span className="font-display text-[0.6875rem] font-bold text-accent">
                   ★ {score.avg.toFixed(1)}
                   <span className="ml-1 font-medium text-ink-faint">you</span>
                 </span>

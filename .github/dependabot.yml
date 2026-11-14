@@ -1,0 +1,45 @@
+# Keeps MrWatch's dependencies current without anyone having to remember.
+#
+# Every Monday: ONE pull request with all minor + patch updates, CI runs on
+# it, and merging it is a single click once it is green. Major versions come
+# as their own pull requests so a breaking change is never bundled.
+# Security fixes do not wait for Monday.
+#
+# Merging these also counts as repository activity, which is what stops
+# GitHub from disabling the weekly database backup after 60 quiet days.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    labels: [dependencies]
+    groups:
+      minor-and-patch:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # the types have to match the Node version actually in use
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]

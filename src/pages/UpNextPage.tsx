@@ -67,7 +67,7 @@ export function UpNextPage() {
           </p>
           <button
             onClick={() => errored.forEach((q) => void q.refetch())}
-            className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+            className="min-h-11 flex-none rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
           >
             Retry
           </button>
@@ -126,7 +126,7 @@ export function UpNextPage() {
 
         {loadingCount > 0 &&
           Array.from({ length: loadingCount }).map((_, i) => (
-            <div key={i} className="h-[6.5rem] animate-pulse rounded-xl bg-surface" />
+            <div key={i} aria-hidden="true" className="h-[6.5rem] animate-pulse rounded-xl bg-surface" />
           ))}
       </div>
 
@@ -139,7 +139,7 @@ export function UpNextPage() {
             {caughtUp.map((show) => (
               <Link key={show.id} to={`/show/${show.id}`} className="w-20 flex-none">
                 <Poster src={show.image?.medium} alt={show.name} className="h-28 w-20 rounded-lg" />
-                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{show.name}</p>
+                <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{show.name}</p>
               </Link>
             ))}
           </div>

@@ -7,16 +7,23 @@ the TV Time replacement, built by Arthur.
 - **Schedule** — upcoming episodes in your timezone, binge drops and TBA handled
 - **For You** — taste-matched recommendations with honest match % and attribution,
   "fans also watch" via TMDB, and articles from the community
-- **The Ladder** — head-to-head ranking instead of star ratings; your Top 10 shows
-  and episodes live on your profile
+- **The Ladder** — head-to-head ranking for your Top 10 shows, episodes and movies,
+  plus 1–10 episode ratings that feed your taste profile
+- **Movies & MrWatch AI** — want/watched lists and a movie picked for you and a friend
+- **Spoiler guard** — episode titles and posts stay hidden until you've caught up
 - **Accounts & social** — Google / Apple / email sign-in, unique @usernames,
   follow friends, public profiles (Supabase)
 
 ## Run it locally
 
 ```bash
-npm install
+npm ci          # Node 22 (see .nvmrc)
 npm run dev
+```
+
+```bash
+npm run lint && npm run typecheck && npm test   # what CI runs
+npm run build && npm run preview                # the built app, under production's security headers
 ```
 
 Works instantly in local, on-device mode. To turn on accounts, sync, and social,

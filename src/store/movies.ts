@@ -32,7 +32,12 @@ const STORAGE_KEY = 'mrwatch:movies:v1'
 function load(): MoviesState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw) as MoviesState
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<MoviesState> | null
+      if (parsed && typeof parsed.movies === 'object' && parsed.movies !== null) {
+        return { movies: parsed.movies }
+      }
+    }
   } catch {
     // corrupted state — start fresh rather than crash
   }
@@ -45,7 +50,13 @@ let hydrating = false
 
 function commit(next: MoviesState) {
   state = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch (err) {
+    // storage full or blocked: keep working from memory. Listeners and sync
+    // must still run, or every later edit in this store would go unsynced.
+    console.warn('[movies] could not persist to this device', err)
+  }
   listeners.forEach((l) => l())
   if (!hydrating) emitStoreChange('movies')
 }
@@ -57,8 +68,11 @@ export function getMoviesState(): MoviesState {
 /** Replace local state with the cloud copy — never triggers a push. */
 export function hydrateMovies(next: MoviesState) {
   hydrating = true
-  commit(next)
-  hydrating = false
+  try {
+    commit(next)
+  } finally {
+    hydrating = false
+  }
 }
 
 function subscribe(listener: () => void) {

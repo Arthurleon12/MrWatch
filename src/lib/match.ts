@@ -1,6 +1,7 @@
 import type { TvmShow } from '../types'
 import type { Top10Show } from '../store/profile'
 import { affinityMultiplier, ratingAgreement, type ShowRating } from './ratings'
+import { ladderBonus } from './recommend'
 
 /**
  * Taste Match — the MrWatch AI pairing engine.
@@ -18,9 +19,49 @@ import { affinityMultiplier, ratingAgreement, type ShowRating } from './ratings'
 // TVmaze says "Science-Fiction", TMDB says "Science Fiction"; TVmaze tags
 // anime as its own genre while TMDB files it under Animation. Normalize so
 // TV taste transfers to movies and vice versa.
+//
+// TVmaze also has genres TMDB's movie vocabulary lacks entirely; fold each
+// into the film genre it sits closest to, or that taste never reaches a movie.
+const GENRE_ALIAS: Record<string, string> = {
+  anime: 'animation',
+  children: 'family',
+  supernatural: 'fantasy',
+  espionage: 'thriller',
+  legal: 'drama',
+  medical: 'drama',
+  'sci fi': 'science fiction',
+}
+
 export function normGenre(genre: string): string {
-  const key = genre.toLowerCase().replace(/[-_]/g, ' ').trim()
-  return key === 'anime' ? 'animation' : key
+  const key = genre.toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim()
+  return GENRE_ALIAS[key] ?? key
+}
+
+/**
+ * Which tracked shows to fetch genres for when the library is bigger than the
+ * detail budget. Ladder shows first (in ladder order), then the most-watched:
+ * those carry the most taste weight, so they are the last ones to leave out.
+ * Recency alone would drop an all-time favourite added years ago.
+ */
+export function tasteDetailIds(
+  tracked: { id: number }[],
+  ladder: { id: number }[],
+  watchedCounts: Record<number, number>,
+  cap: number,
+): number[] {
+  const rank = new Map<number, number>()
+  ladder.slice(0, 10).forEach((l, i) => {
+    if (!rank.has(l.id)) rank.set(l.id, i)
+  })
+  const offLadder = Number.MAX_SAFE_INTEGER
+  return [...tracked]
+    .sort(
+      (a, b) =>
+        (rank.get(a.id) ?? offLadder) - (rank.get(b.id) ?? offLadder) ||
+        (watchedCounts[b.id] ?? 0) - (watchedCounts[a.id] ?? 0),
+    )
+    .slice(0, cap)
+    .map((s) => s.id)
 }
 
 function displayGenre(key: string): string {
@@ -76,15 +117,14 @@ export function buildTasteSnapshot(input: {
     const ladderIndex = input.ladderShows.findIndex((l) => l.id === t.id)
     // same engagement weighting as the solo recommendation engine, ratings included
     const weight =
-      (1 + Math.log2(1 + watchedCount) + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0)) *
+      (1 + Math.log2(1 + watchedCount) + ladderBonus(ladderIndex)) *
       affinityMultiplier(input.showRatings?.get(t.id))
     for (const g of detailById.get(t.id)?.genres ?? []) add(g, weight)
   }
 
   for (const m of input.movies) {
     const ladderIndex = input.ladderMovies.findIndex((l) => l.id === m.id)
-    const weight =
-      m.status === 'watched' ? 1 + (ladderIndex >= 0 ? (10 - ladderIndex) / 3 : 0) : 0.4
+    const weight = m.status === 'watched' ? 1 + ladderBonus(ladderIndex) : 0.4
     for (const g of m.genres) add(g, weight)
   }
 
@@ -168,7 +208,9 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
 
   if (a.genreWeights.size > 0 && b.genreWeights.size > 0) {
     // cosine runs hot (everyone likes Drama) — a gentle power spreads it out
-    parts.push({ weight: 0.45, value: Math.pow(cosine(a.genreWeights, b.genreWeights), 1.25) })
+    // (clamped first: a negative base to a fractional power is NaN)
+    const similarity = Math.min(1, Math.max(0, cosine(a.genreWeights, b.genreWeights)))
+    parts.push({ weight: 0.45, value: Math.pow(similarity, 1.25) })
   }
   if (a.trackedShows.length > 0 && b.trackedShows.length > 0) {
     const containment = sharedShows.length / Math.min(a.trackedShows.length, b.trackedShows.length)
@@ -180,7 +222,10 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
   }
   if (ladderAgreements.length > 0) {
     const closeness =
-      ladderAgreements.reduce((acc, l) => acc + (1 - Math.abs(l.rankA - l.rankB) / 10), 0) /
+      ladderAgreements.reduce(
+        (acc, l) => acc + Math.max(0, 1 - Math.abs(l.rankA - l.rankB) / 10),
+        0,
+      ) /
       ladderAgreements.length
     parts.push({ weight: 0.1, value: closeness })
   }
@@ -191,10 +236,12 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
   }
 
   const totalWeight = parts.reduce((acc, p) => acc + p.weight, 0)
-  const percent =
+  const rawPercent =
     totalWeight > 0
       ? Math.round((parts.reduce((acc, p) => acc + p.weight * p.value, 0) / totalWeight) * 100)
       : 0
+  // whatever reached us from the network, the label stays a real percentage
+  const percent = Number.isFinite(rawPercent) ? Math.min(100, Math.max(0, rawPercent)) : 0
 
   const sharedGenres = [...a.genreWeights.entries()]
     .map(([key, wa]) => ({ key, min: Math.min(wa, b.genreWeights.get(key) ?? 0) }))
@@ -247,8 +294,8 @@ export function scoreTitleForPair(
   // the couple rule: the pick must clear the bar for BOTH — min dominates
   const joint = Math.min(rawA, rawB) * 0.8 + ((rawA + rawB) / 2) * 0.2
   return {
-    forA: Math.round(Math.min(0.99, rawA) * 100),
-    forB: Math.round(Math.min(0.99, rawB) * 100),
+    forA: Math.round(Math.min(0.99, Math.max(0, rawA)) * 100),
+    forB: Math.round(Math.min(0.99, Math.max(0, rawB)) * 100),
     joint,
   }
 }
