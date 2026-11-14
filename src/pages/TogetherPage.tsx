@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { useLibrary } from '../store/library'
 import { useProfile } from '../store/profile'
@@ -7,6 +7,7 @@ import { useTmdbKey } from '../store/settings'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
 import {
+  friendTasteDetailIds,
   useMovieGenreMap,
   useMyTasteSnapshot,
   useFriendTasteSnapshot,
@@ -18,6 +19,9 @@ import { computeTasteMatch, scoreTitleForPair } from '../lib/match'
 import { EXCLUDED_TYPES } from '../lib/recommend'
 import { getMovieRecommendations, tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { Poster } from '../components/Poster'
+import { ShareButton } from '../components/ShareButton'
+import { AuthRedirect } from '../components/AppShell'
+import { useBack } from '../lib/useBack'
 import { ChevronLeftIcon, SparkleIcon, UserIcon } from '../components/icons'
 import type { TvmShow } from '../types'
 
@@ -30,8 +34,8 @@ import type { TvmShow } from '../types'
  */
 export function TogetherPage() {
   const { username = '' } = useParams()
-  const navigate = useNavigate()
-  const { session, initializing } = useSession()
+  const goBack = useBack(`/u/${username}`)
+  const { session, profileStatus, initializing } = useSession()
   const me = useProfile()
   const { shows: myShows } = useLibrary()
   const tmdbKey = useTmdbKey()
@@ -51,7 +55,7 @@ export function TogetherPage() {
 
   const recQueries = useQueries({
     queries: seedIds.map((id) => ({
-      queryKey: ['movie-recs', id],
+      queryKey: ['movie-recs', id, tmdbKey],
       queryFn: () => getMovieRecommendations(id, tmdbKey),
       enabled: tmdbKey.length > 0,
       staleTime: 24 * 60 * 60 * 1000,
@@ -109,8 +113,8 @@ export function TogetherPage() {
   ])
 
   /* ---------------- shows: their shelf for you + new for both ------------ */
-  const friendTrackIds = (friend?.tracks ?? []).slice(0, 30).map((t) => t.show_id)
-  const friendDetailQueries = useTrackedShowDetails(friendTrackIds)
+  // the same ids the taste snapshot asks for, so both read one cache entry each
+  const friendDetailQueries = useTrackedShowDetails(friendTasteDetailIds(friend))
 
   const shelfPicks = useMemo(() => {
     const b = theirs.snapshot
@@ -173,7 +177,7 @@ export function TogetherPage() {
   if (initializing) {
     return <div className="px-4 pt-6"><div className="h-52 animate-pulse rounded-xl bg-surface" /></div>
   }
-  if (!session) return <Navigate to="/auth" replace />
+  if (!session || profileStatus === 'missing') return <AuthRedirect />
   if (username.toLowerCase() === me.username.toLowerCase()) return <Navigate to="/profile" replace />
 
   if (theirs.isLoading) {
@@ -185,7 +189,7 @@ export function TogetherPage() {
         <p className="text-sm text-ink-soft">Couldn't load your friend's profile — check your connection.</p>
         <button
           onClick={() => void theirs.refetch()}
-          className="mt-3 rounded-full bg-accent px-5 py-2 font-display text-xs font-bold text-bg"
+          className="mt-3 min-h-11 rounded-full bg-accent px-5 font-display text-xs font-bold text-bg"
         >
           Retry
         </button>
@@ -209,7 +213,7 @@ export function TogetherPage() {
   const avatar = (src: string | null) => (
     <span className="h-14 w-14 flex-none overflow-hidden rounded-full border-2 border-bg bg-raised">
       {src ? (
-        <img src={src} alt="" className="h-full w-full object-cover" />
+        <img src={src} alt="" decoding="async" className="h-full w-full object-cover" />
       ) : (
         <span className="flex h-full w-full items-center justify-center text-ink-faint">
           <UserIcon className="h-6 w-6" />
@@ -220,13 +224,25 @@ export function TogetherPage() {
 
   return (
     <div className="px-4 pt-4">
-      <button
-        onClick={() => navigate(-1)}
-        aria-label="Back"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
-      >
-        <ChevronLeftIcon className="h-5 w-5" />
-      </button>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={goBack}
+          aria-label="Back"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
+        >
+          <ChevronLeftIcon className="h-5 w-5" />
+        </button>
+        <ShareButton
+          path={`/together/${me.username}`}
+          title="MrWatch Taste Match"
+          text={
+            ready && match?.hasEnoughData
+              ? `@${me.username} and @${friend.username} are a ${match.percent}% Taste Match on MrWatch — what's yours?`
+              : `See your Taste Match with @${me.username} on MrWatch.`
+          }
+          label="Share your Taste Match"
+        />
+      </div>
 
       {/* ---- taste match hero ---- */}
       <div className="mt-4 rounded-2xl bg-surface p-5 text-center">
@@ -237,7 +253,7 @@ export function TogetherPage() {
           </span>
           {avatar(friend.avatarUrl)}
         </div>
-        <p className="mt-2 font-display text-[0.65rem] font-bold uppercase tracking-[0.2em] text-ink-faint">
+        <p className="mt-2 font-display text-[0.6875rem] font-bold uppercase tracking-[0.2em] text-ink-faint">
           MrWatch AI · you + @{friend.username}
         </p>
         {ready && match ? (
@@ -263,7 +279,7 @@ export function TogetherPage() {
                 </span>
               </p>
             )}
-            <p className="mt-1 text-[0.68rem] text-ink-faint">
+            <p className="mt-1 text-[0.6875rem] text-ink-faint">
               {[
                 match.sharedShows.length > 0 ? `${match.sharedShows.length} shows in common` : null,
                 match.sharedMovies.length > 0 ? `${match.sharedMovies.length} movies you've both seen` : null,
@@ -275,7 +291,7 @@ export function TogetherPage() {
                 .join(' · ') || 'Two histories, one score'}
             </p>
             {!match.hasEnoughData && (
-              <p className="mt-2 text-[0.68rem] text-ink-faint">
+              <p className="mt-2 text-[0.6875rem] text-ink-faint">
                 Early days — the score sharpens as you both track and rank more.
               </p>
             )}
@@ -291,7 +307,7 @@ export function TogetherPage() {
           <SparkleIcon className="h-3.5 w-3.5 text-accent" />
           Tonight's movie, chosen for you two
         </h2>
-        <p className="mt-1 text-[0.68rem] text-ink-faint">
+        <p className="mt-1 text-[0.6875rem] text-ink-faint">
           Fits both tastes · skips everything either of you has seen.
         </p>
 
@@ -333,7 +349,7 @@ export function TogetherPage() {
                   ~{headline.forA}% you · ~{headline.forB}% @{friend.username}
                 </p>
                 {headline.onList && (
-                  <p className="mt-1 text-[0.68rem] font-medium text-good">
+                  <p className="mt-1 text-[0.6875rem] font-medium text-good">
                     Already on {headline.onList === 'you' ? 'your' : `${headline.onList}'s`} list
                   </p>
                 )}
@@ -348,8 +364,8 @@ export function TogetherPage() {
                 {alsoGood.map(({ movie, forA, forB }) => (
                   <Link key={movie.id} to={`/movie/${movie.id}`} className="w-24 flex-none">
                     <Poster src={tmdbImage(movie.poster_path, 'w154')} alt="" kind="movie" className="h-34 w-24 rounded-lg" />
-                    <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{movie.title}</p>
-                    <p className="text-[0.62rem] font-medium text-accent">
+                    <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{movie.title}</p>
+                    <p className="text-[0.6875rem] font-medium text-accent">
                       {Math.min(forA, forB)}%+ both
                     </p>
                   </Link>
@@ -374,8 +390,8 @@ export function TogetherPage() {
             {shelfPicks.map(({ show, forYou }) => (
               <Link key={show.id} to={`/show/${show.id}`} className="w-24 flex-none">
                 <Poster src={show.image?.medium} alt="" className="h-34 w-24 rounded-lg" />
-                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{show.name}</p>
-                <p className="text-[0.62rem] font-medium text-accent">~{forYou}% you</p>
+                <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{show.name}</p>
+                <p className="text-[0.6875rem] font-medium text-accent">~{forYou}% you</p>
               </Link>
             ))}
           </div>
@@ -396,7 +412,7 @@ export function TogetherPage() {
                   <p className="truncate font-display text-sm font-bold">{show.name}</p>
                   <p className="mt-0.5 truncate text-xs text-ink-faint">{show.genres.slice(0, 3).join(' · ')}</p>
                 </div>
-                <span className="flex-none rounded-full bg-raised px-2 py-0.5 font-display text-[0.62rem] font-bold text-accent tabular-nums">
+                <span className="flex-none rounded-full bg-raised px-2 py-0.5 font-display text-[0.6875rem] font-bold text-accent tabular-nums">
                   {Math.min(score.forA, score.forB)}%+ both
                 </span>
               </Link>

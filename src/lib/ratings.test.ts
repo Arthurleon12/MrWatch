@@ -26,6 +26,13 @@ describe('affinityMultiplier', () => {
     expect(affinityMultiplier({ avg: 0, count: 0 })).toBe(1)
   })
 
+  it('stays neutral when the average is not a usable number', () => {
+    expect(affinityMultiplier({ avg: NaN, count: 2 })).toBe(1)
+    expect(affinityMultiplier({ avg: Infinity, count: 2 })).toBe(1)
+    expect(affinityMultiplier({ avg: 9, count: NaN })).toBe(1)
+    expect(affinityMultiplier({ avg: 9, count: -4 })).toBe(1)
+  })
+
   it('is neutral at the neutral score however many ratings back it', () => {
     expect(affinityMultiplier({ avg: 7, count: 50 })).toBeCloseTo(1)
   })

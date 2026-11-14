@@ -7,8 +7,12 @@
 const scale = (v: number) => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10)
 
 export function compactCount(n: number): string {
+  // a count that isn't a number is a bug upstream; show nothing rather than "NaNm"
+  if (!Number.isFinite(n)) return '0'
+  if (n < 0) return `-${compactCount(-n)}`
   if (n < 1000) return String(n)
   // check the ROUNDED value so 999,950+ promotes to "1m", never "1000k"
   if (n < 1_000_000 && scale(n / 1000) < 1000) return `${scale(n / 1000)}k`
-  return `${scale(n / 1_000_000)}m`
+  if (n < 1_000_000_000 && scale(n / 1_000_000) < 1000) return `${scale(n / 1_000_000)}m`
+  return `${scale(n / 1_000_000_000)}b`
 }

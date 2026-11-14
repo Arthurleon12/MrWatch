@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useShow, useSpoilerGuard } from '../queries'
 import {
   setEpisodeRating,
@@ -14,6 +14,9 @@ import { stripHtml } from '../api/tvmaze'
 import { epCode, hasAired, shortDate, episodeAirTime } from '../lib/time'
 import { compactCount } from '../lib/format'
 import { showRatings } from '../lib/ratings'
+import { confirmUntrack } from '../lib/confirm'
+import { useBack } from '../lib/useBack'
+import { NotFoundPage, PageSkeleton } from '../components/AppShell'
 import { Poster } from '../components/Poster'
 import { SpoilerText } from '../components/Spoiler'
 import { CheckIcon, ChevronLeftIcon, PlusIcon } from '../components/icons'
@@ -22,8 +25,9 @@ import type { TvmEpisode } from '../types'
 export function ShowPage() {
   const { id } = useParams()
   const showId = Number(id)
-  const navigate = useNavigate()
-  const { data: show, isLoading, isError } = useShow(showId)
+  const validId = Number.isInteger(showId) && showId > 0
+  const goBack = useBack('/')
+  const { data: show, isLoading, isError, refetch } = useShow(validId ? showId : 0)
   const { shows: tracked, watched, ratings } = useLibrary()
   const [expandSummary, setExpandSummary] = useState(false)
   const [ratingEpId, setRatingEpId] = useState<number | null>(null)
@@ -49,14 +53,22 @@ export function ShowPage() {
     return [...map.entries()].sort((a, b) => b[0] - a[0])
   }, [show])
 
-  if (isLoading) {
-    return <div className="px-4 pt-6"><div className="h-48 animate-pulse rounded-xl bg-surface" /></div>
-  }
+  // "/show/abc" is a bad link, not a bad connection
+  if (!validId) return <NotFoundPage />
+  if (isLoading) return <PageSkeleton />
   if (isError || !show) {
     return (
       <div className="px-4 pt-6">
         <p className="text-sm text-ink-soft">Couldn't load this show. Check your connection and try again.</p>
-        <Link to="/" className="mt-3 inline-block text-sm text-accent">Back to Up Next</Link>
+        <div className="mt-3 flex items-center gap-4">
+          <button
+            onClick={() => void refetch()}
+            className="min-h-11 rounded-full bg-accent px-5 font-display text-xs font-bold text-bg"
+          >
+            Retry
+          </button>
+          <Link to="/" className="text-sm text-accent">Back to Up Next</Link>
+        </div>
       </div>
     )
   }
@@ -72,9 +84,9 @@ export function ShowPage() {
     <div>
       <div className="relative px-4 pt-4">
         <button
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           aria-label="Back"
-          className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+          className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
         >
           <ChevronLeftIcon className="h-5 w-5" />
         </button>
@@ -91,8 +103,13 @@ export function ShowPage() {
             )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
-                onClick={() => (isTracked ? untrackShow(show.id) : trackShow(show))}
-                className={`flex items-center gap-1.5 rounded-full px-4 py-2 font-display text-xs font-bold transition-colors ${
+                onClick={() => {
+                  if (!isTracked) trackShow(show)
+                  // untracking also erases this show's watched episodes and ratings
+                  else if (confirmUntrack(show.name, watchedSet.size)) untrackShow(show.id)
+                }}
+                aria-pressed={isTracked}
+                className={`flex min-h-11 items-center gap-1.5 rounded-full px-4 font-display text-xs font-bold transition-colors ${
                   isTracked ? 'bg-surface text-ink-soft' : 'bg-accent text-bg'
                 }`}
               >
@@ -102,7 +119,7 @@ export function ShowPage() {
               {isTracked && (
                 <Link
                   to={`/rank/${show.id}`}
-                  className="rounded-full border-2 border-accent px-4 py-1.5 font-display text-xs font-bold text-accent"
+                  className="flex min-h-11 items-center rounded-full border-2 border-accent px-4 font-display text-xs font-bold text-accent"
                 >
                   {ladderPos >= 0 ? `Ranked #${ladderPos + 1} · re-rank` : 'Rank it'}
                 </Link>
@@ -121,12 +138,14 @@ export function ShowPage() {
         </div>
 
         {summary && (
-          <p
+          <button
+            type="button"
             onClick={() => setExpandSummary((v) => !v)}
-            className={`mt-4 text-sm leading-relaxed text-ink-soft ${expandSummary ? '' : 'line-clamp-3'}`}
+            aria-expanded={expandSummary}
+            className={`mt-4 block w-full text-left text-sm leading-relaxed text-ink-soft ${expandSummary ? '' : 'line-clamp-3'}`}
           >
             {summary}
-          </p>
+          </button>
         )}
 
         {isTracked && airedEpisodes.length > 0 && (
@@ -140,13 +159,20 @@ export function ShowPage() {
                   onClick={() =>
                     setManyWatched(show.id, airedEpisodes.map((e) => e.id), true)
                   }
-                  className="font-medium text-accent"
+                  className="-m-2 min-h-11 p-2 font-medium text-accent"
                 >
                   Mark all watched
                 </button>
               )}
             </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-raised">
+            <div
+              role="progressbar"
+              aria-label="Aired episodes watched"
+              aria-valuemin={0}
+              aria-valuemax={airedEpisodes.length}
+              aria-valuenow={watchedCount}
+              className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-raised"
+            >
               <div
                 className="h-full rounded-full bg-accent transition-all"
                 style={{ width: `${(watchedCount / airedEpisodes.length) * 100}%` }}
@@ -172,8 +198,18 @@ export function ShowPage() {
                 </h2>
                 {aired.length > 0 && (
                   <button
-                    onClick={() => setManyWatched(show.id, aired.map((e) => e.id), !allWatched)}
-                    className="text-xs font-medium text-accent"
+                    onClick={() => {
+                      // unmarking also deletes the ratings on those episodes
+                      if (
+                        allWatched &&
+                        !window.confirm(
+                          `Unmark all ${aired.length} episodes of season ${seasonNum}? Your ratings for them are erased too.`,
+                        )
+                      )
+                        return
+                      setManyWatched(show.id, aired.map((e) => e.id), !allWatched)
+                    }}
+                    className="-m-2 min-h-11 p-2 text-xs font-medium text-accent"
                   >
                     {allWatched ? 'Unmark season' : 'Mark season'}
                   </button>
@@ -217,7 +253,8 @@ export function ShowPage() {
                               setRatingDraft(rating ?? 7)
                             }}
                             aria-label={rating ? `Rated ${rating.toFixed(1)} — change rating` : `Rate ${epCode(ep)}`}
-                            className={`flex h-8 min-w-8 flex-none items-center justify-center rounded-full px-1.5 font-display text-xs font-bold transition-colors ${
+                            aria-expanded={isRatingOpen}
+                            className={`flex h-10 min-w-10 flex-none items-center justify-center rounded-full px-1.5 font-display text-xs font-bold transition-colors ${
                               rating
                                 ? 'bg-raised text-accent'
                                 : 'border-2 border-line text-ink-faint active:border-accent'
@@ -230,7 +267,8 @@ export function ShowPage() {
                           <button
                             onClick={() => setEpisodeWatched(show.id, ep.id, !isWatched)}
                             aria-label={`Mark ${epCode(ep)} ${isWatched ? 'unwatched' : 'watched'}`}
-                            className={`flex h-8 w-8 flex-none items-center justify-center rounded-full transition-colors ${
+                            aria-pressed={isWatched}
+                            className={`flex h-10 w-10 flex-none items-center justify-center rounded-full transition-colors ${
                               isWatched
                                 ? 'bg-accent text-bg'
                                 : 'border-2 border-line text-ink-faint active:border-accent'
@@ -239,7 +277,7 @@ export function ShowPage() {
                             <CheckIcon className="h-4 w-4" />
                           </button>
                         ) : (
-                          <span className="h-8 w-8 flex-none" />
+                          <span className="h-10 w-10 flex-none" />
                         )}
                       </div>
 
@@ -256,14 +294,15 @@ export function ShowPage() {
                             value={ratingDraft}
                             onChange={(e) => setRatingDraft(Number(e.target.value))}
                             aria-label={`Rating for ${epCode(ep)}`}
-                            className="min-w-0 flex-1 accent-accent"
+                            aria-valuetext={`${ratingDraft.toFixed(1)} out of 10`}
+                            className="h-11 min-w-0 flex-1 accent-accent"
                           />
                           <button
                             onClick={() => {
                               setEpisodeRating(show.id, ep.id, ratingDraft)
                               setRatingEpId(null)
                             }}
-                            className="flex-none rounded-full bg-accent px-3.5 py-1.5 font-display text-xs font-bold text-bg"
+                            className="min-h-11 flex-none rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
                           >
                             Save
                           </button>
@@ -273,7 +312,7 @@ export function ShowPage() {
                                 setEpisodeRating(show.id, ep.id, null)
                                 setRatingEpId(null)
                               }}
-                              className="flex-none text-xs font-medium text-ink-faint"
+                              className="-mx-2 min-h-11 flex-none px-2 text-xs font-medium text-ink-faint"
                             >
                               Clear
                             </button>

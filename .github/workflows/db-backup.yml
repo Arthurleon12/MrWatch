@@ -10,11 +10,23 @@
 #   BACKUP_PASSPHRASE   — any long random string; KEEP IT SOMEWHERE SAFE,
 #                         without it a backup cannot be decrypted
 #
+# GitHub DISABLES this schedule after 60 days without a commit to the repo
+# (it happened in November 2026). If the Actions tab says "This scheduled
+# workflow is disabled", click "Enable workflow". Merging the weekly
+# Dependabot pull request counts as activity and keeps it alive.
+#
 # The dump is AES-encrypted before upload because this repo is public and
-# artifacts on public repos are downloadable. Restore:
-#   openssl enc -d -aes-256-cbc -pbkdf2 -in backup.sql.enc -out backup.sql \
-#     -pass pass:<passphrase>
-#   psql "$SUPABASE_DB_URL" -f backup.sql
+# artifacts on public repos are downloadable. Restore (openssl asks for the
+# passphrase — never put it on the command line, it lands in shell history):
+#   openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 \
+#     -in backup.sql.enc -out backup.sql
+#   psql "$DB_URL" -v ON_ERROR_STOP=1 --single-transaction -f backup.sql
+# Backups made before 14 Nov 2026 decrypt with the same command WITHOUT
+# "-iter 600000 -md sha256".
+#
+# What this covers: the app's own tables (public schema). It does not
+# include Supabase's auth.users, so it restores lost rows into THIS project;
+# it is not enough on its own to rebuild the project from nothing.
 
 name: Database backup
 
@@ -23,13 +35,22 @@ on:
     - cron: '0 3 * * 1' # Mondays 03:00 UTC
   workflow_dispatch: {}
 
+# this job never touches the repository
+permissions: {}
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
 jobs:
   dump:
-    runs-on: ubuntu-latest
+    # pinned: the pg_dump path and the apt source below depend on the release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Install postgresql-client-17
         run: |
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
@@ -54,7 +75,25 @@ jobs:
           PW="$(printf '%s' "$DB_URL" | sed -E 's|^[a-z]+://[^:/]+:([^@]+)@.*$|\1|')"
           if [ -n "$PW" ] && [ "$PW" != "$DB_URL" ]; then echo "::add-mask::$PW"; fi
           # full path: the runner's default pg_dump is v16, the server is v17
-          /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges -f backup.sql
+          # the pooler drops the odd connection — one blip must not cost a week
+          ok=0
+          for attempt in 1 2 3; do
+            if /usr/lib/postgresql/17/bin/pg_dump "$DB_URL" --schema=public --no-owner --no-privileges -f backup.sql; then
+              ok=1
+              break
+            fi
+            echo "pg_dump attempt $attempt failed"
+            if [ "$attempt" != 3 ]; then sleep 30; fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::pg_dump failed 3 times. Is the Supabase project paused, or was the database password rotated?"
+            exit 1
+          fi
+          # a dump with no table data is not a backup
+          if ! grep -q '^COPY public\.' backup.sql; then
+            echo "::error::The dump contains no table data."
+            exit 1
+          fi
           wc -c backup.sql
 
       - name: Encrypt
@@ -65,12 +104,20 @@ jobs:
             echo "::error::BACKUP_PASSPHRASE secret is not set — see the header of this workflow file."
             exit 1
           fi
-          openssl enc -aes-256-cbc -pbkdf2 -in backup.sql -out backup.sql.enc -pass env:PASSPHRASE
+          # 600k PBKDF2 rounds: the file is downloadable by anyone, so the
+          # passphrase must be expensive to guess
+          openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -salt \
+            -in backup.sql -out backup.sql.enc -pass env:PASSPHRASE
+          # prove it decrypts back to the same bytes before trusting it
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 \
+            -in backup.sql.enc -pass env:PASSPHRASE | cmp -s - backup.sql \
+            || { echo "::error::The encrypted backup did not decrypt back to the dump."; exit 1; }
           rm backup.sql
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mrwatch-db-${{ github.run_number }}
           path: backup.sql.enc
           retention-days: 90
+          if-no-files-found: error

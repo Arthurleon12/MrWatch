@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useMovie, useMovieRecs } from '../queries'
 import { removeMovie, saveMovie, useMovies } from '../store/movies'
 import { useProfile } from '../store/profile'
 import { useTmdbKey } from '../store/settings'
 import { tmdbImage } from '../api/tmdb'
+import { useBack } from '../lib/useBack'
+import { NotFoundPage, PageSkeleton } from '../components/AppShell'
 import { Poster } from '../components/Poster'
 import { BookmarkIcon, CheckIcon, ChevronLeftIcon } from '../components/icons'
 
@@ -18,10 +20,11 @@ function runtimeLabel(minutes: number | null): string | null {
 export function MoviePage() {
   const { id } = useParams()
   const movieId = Number(id)
-  const navigate = useNavigate()
+  const validId = Number.isInteger(movieId) && movieId > 0
+  const goBack = useBack('/search')
   const tmdbKey = useTmdbKey()
-  const { data: movie, isLoading, isError } = useMovie(movieId, tmdbKey)
-  const { data: recs } = useMovieRecs(movieId, tmdbKey)
+  const { data: movie, isLoading, isError, refetch } = useMovie(validId ? movieId : 0, tmdbKey)
+  const { data: recs } = useMovieRecs(validId ? movieId : 0, tmdbKey)
   const { movies } = useMovies()
   const [expandOverview, setExpandOverview] = useState(false)
 
@@ -30,6 +33,8 @@ export function MoviePage() {
   const isWanted = saved?.status === 'want'
   const ladderPos = useProfile().top10Movies.findIndex((m) => m.id === movieId)
 
+  // "/movie/abc" is a bad link, not a bad connection
+  if (!validId) return <NotFoundPage />
   if (!tmdbKey) {
     return (
       <div className="px-4 pt-6">
@@ -42,14 +47,20 @@ export function MoviePage() {
       </div>
     )
   }
-  if (isLoading) {
-    return <div className="px-4 pt-6"><div className="h-48 animate-pulse rounded-xl bg-surface" /></div>
-  }
+  if (isLoading) return <PageSkeleton />
   if (isError || !movie) {
     return (
       <div className="px-4 pt-6">
         <p className="text-sm text-ink-soft">Couldn't load this movie. Check your connection and try again.</p>
-        <Link to="/search" className="mt-3 inline-block text-sm text-accent">Back to Search</Link>
+        <div className="mt-3 flex items-center gap-4">
+          <button
+            onClick={() => void refetch()}
+            className="min-h-11 rounded-full bg-accent px-5 font-display text-xs font-bold text-bg"
+          >
+            Retry
+          </button>
+          <Link to="/search" className="text-sm text-accent">Back to Search</Link>
+        </div>
       </div>
     )
   }
@@ -64,9 +75,9 @@ export function MoviePage() {
     <div>
       <div className="relative px-4 pt-4">
         <button
-          onClick={() => navigate(-1)}
+          onClick={goBack}
           aria-label="Back"
-          className="mb-3 flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+          className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
         >
           <ChevronLeftIcon className="h-5 w-5" />
         </button>
@@ -95,7 +106,8 @@ export function MoviePage() {
           {!isWatched && (
             <button
               onClick={() => (isWanted ? removeMovie(movie.id) : saveMovie(movie, 'want'))}
-              className={`flex items-center gap-1.5 rounded-full px-4 py-2 font-display text-xs font-bold transition-colors ${
+              aria-pressed={isWanted}
+              className={`flex min-h-11 items-center gap-1.5 rounded-full px-4 font-display text-xs font-bold transition-colors ${
                 isWanted ? 'bg-surface text-ink-soft' : 'bg-accent text-bg'
               }`}
             >
@@ -105,8 +117,9 @@ export function MoviePage() {
           )}
           <button
             onClick={() => (isWatched ? saveMovie(movie, 'want') : saveMovie(movie, 'watched'))}
-            className={`flex items-center gap-1.5 rounded-full px-4 py-2 font-display text-xs font-bold transition-colors ${
-              isWatched ? 'bg-surface text-ink-soft' : isWanted ? 'bg-accent text-bg' : 'border-2 border-line bg-transparent py-1.5 text-ink-soft'
+            aria-pressed={isWatched}
+            className={`flex min-h-11 items-center gap-1.5 rounded-full px-4 font-display text-xs font-bold transition-colors ${
+              isWatched ? 'bg-surface text-ink-soft' : isWanted ? 'bg-accent text-bg' : 'border-2 border-line bg-transparent text-ink-soft'
             }`}
           >
             <CheckIcon className="h-3.5 w-3.5" />
@@ -115,7 +128,7 @@ export function MoviePage() {
           {isWatched && (
             <Link
               to={`/rank/movie/${movie.id}`}
-              className="rounded-full border-2 border-accent px-4 py-1.5 font-display text-xs font-bold text-accent"
+              className="flex min-h-11 items-center rounded-full border-2 border-accent px-4 font-display text-xs font-bold text-accent"
             >
               {ladderPos >= 0 ? `Ranked #${ladderPos + 1} · re-rank` : 'Rank it'}
             </Link>
@@ -123,12 +136,14 @@ export function MoviePage() {
         </div>
 
         {movie.overview && (
-          <p
+          <button
+            type="button"
             onClick={() => setExpandOverview((v) => !v)}
-            className={`mt-4 text-sm leading-relaxed text-ink-soft ${expandOverview ? '' : 'line-clamp-3'}`}
+            aria-expanded={expandOverview}
+            className={`mt-4 block w-full text-left text-sm leading-relaxed text-ink-soft ${expandOverview ? '' : 'line-clamp-3'}`}
           >
             {movie.overview}
-          </p>
+          </button>
         )}
       </div>
 
@@ -141,9 +156,9 @@ export function MoviePage() {
             {recs!.map((rec) => (
               <Link key={rec.id} to={`/movie/${rec.id}`} className="w-24 flex-none">
                 <Poster src={tmdbImage(rec.poster_path, 'w154')} alt="" kind="movie" className="h-34 w-24 rounded-lg" />
-                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{rec.title}</p>
+                <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{rec.title}</p>
                 {rec.vote_average > 0 && (
-                  <p className="text-[0.62rem] text-ink-faint">★ {rec.vote_average.toFixed(1)}</p>
+                  <p className="text-[0.6875rem] text-ink-faint">★ {rec.vote_average.toFixed(1)}</p>
                 )}
               </Link>
             ))}

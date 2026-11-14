@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useMovieGenreMap, useMovieSearch, useSearch } from '../queries'
 import { trackShow, untrackShow, useLibrary } from '../store/library'
@@ -8,6 +8,7 @@ import { useTmdbKey } from '../store/settings'
 import { tmdbImage, type TmdbMovie } from '../api/tmdb'
 import { supabase } from '../lib/supabase'
 import { useSession } from '../store/session'
+import { confirmUntrack } from '../lib/confirm'
 import { Poster } from '../components/Poster'
 import { CheckIcon, PlusIcon, SearchIcon, UserIcon } from '../components/icons'
 
@@ -26,15 +27,25 @@ function useDebounced(value: string, ms: number): string {
  * to search people only.
  */
 export function SearchPage() {
-  const [input, setInput] = useState('')
+  // The query lives in the URL (?q=) so coming Back from a result returns to
+  // the same search instead of an empty box. The input keeps its own state —
+  // typing must never wait on a navigation — and the URL follows the
+  // debounced value.
+  const [params, setParams] = useSearchParams()
+  const urlQuery = params.get('q') ?? ''
+  const [input, setInput] = useState(urlQuery)
   const query = useDebounced(input, 350)
+  useEffect(() => {
+    if (query === urlQuery) return
+    setParams(query ? { q: query } : {}, { replace: true })
+  }, [query, urlQuery, setParams])
   const peopleOnly = query.trimStart().startsWith('@')
   const cleanQuery = query.trim().replace(/^@/, '')
 
   const tmdbKey = useTmdbKey()
   const { data: results, isFetching } = useSearch(peopleOnly ? '' : query)
   const { data: movieResults } = useMovieSearch(peopleOnly ? '' : query, tmdbKey)
-  const { shows: tracked } = useLibrary()
+  const { shows: tracked, watched } = useLibrary()
   const { movies: savedMovies } = useMovies()
   const { session } = useSession()
   const peopleEnabled = !!supabase && !!session
@@ -87,7 +98,14 @@ export function SearchPage() {
                 ? peopleEnabled ? 'Shows, movies, or @people…' : 'Shows & movies…'
                 : peopleEnabled ? 'Shows, or @people…' : 'Find a show…'
             }
-            autoFocus
+            // returning to a search shouldn't pop the keyboard over the results
+            autoFocus={urlQuery === ''}
+            name="q"
+            aria-label="Search shows, movies, or people"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
             inputMode="search"
             enterKeyHint="search"
             className="w-full bg-transparent py-3 text-[0.95rem] text-ink outline-none placeholder:text-ink-faint"
@@ -113,7 +131,7 @@ export function SearchPage() {
       {(people?.length ?? 0) > 0 && (
         <div className="mt-2 flex flex-col gap-2">
           {!peopleOnly && (
-            <p className="font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+            <p className="font-display text-[0.6875rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
               People
             </p>
           )}
@@ -121,7 +139,7 @@ export function SearchPage() {
             <Link key={p.username} to={`/u/${p.username}`} className="flex items-center gap-3 rounded-xl bg-surface p-2.5">
               <span className="h-11 w-11 flex-none overflow-hidden rounded-full bg-raised">
                 {p.avatar_url ? (
-                  <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
+                  <img src={p.avatar_url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-ink-faint">
                     <UserIcon className="h-5 w-5" />
@@ -159,7 +177,7 @@ export function SearchPage() {
         {!peopleOnly &&
           (results?.length ?? 0) > 0 &&
           ((people?.length ?? 0) > 0 || (movieResults?.length ?? 0) > 0) && (
-          <p className="mt-2 font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+          <p className="mt-2 font-display text-[0.6875rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
             Shows
           </p>
         )}
@@ -184,9 +202,15 @@ export function SearchPage() {
                 </div>
               </Link>
               <button
-                onClick={() => (isTracked ? untrackShow(show.id) : trackShow(show))}
+                onClick={() => {
+                  if (!isTracked) trackShow(show)
+                  // untracking erases watched episodes and ratings — one mis-tap
+                  // on this small button used to wipe a show's whole history
+                  else if (confirmUntrack(show.name, (watched[show.id] ?? []).length)) untrackShow(show.id)
+                }}
                 aria-label={isTracked ? `Stop tracking ${show.name}` : `Track ${show.name}`}
-                className={`flex h-10 w-10 flex-none items-center justify-center rounded-full transition-colors ${
+                aria-pressed={isTracked}
+                className={`flex h-11 w-11 flex-none items-center justify-center rounded-full transition-colors ${
                   isTracked
                     ? 'bg-accent text-bg'
                     : 'border-2 border-line text-ink-soft active:border-accent active:text-accent'
@@ -202,7 +226,7 @@ export function SearchPage() {
       {/* ---- movies ---- */}
       {!peopleOnly && (movieResults?.length ?? 0) > 0 && (
         <div className="mt-2 flex flex-col gap-2">
-          <p className="mt-2 font-display text-[0.65rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+          <p className="mt-2 font-display text-[0.6875rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
             Movies
           </p>
           {movieResults!.map((movie) => {
@@ -220,7 +244,7 @@ export function SearchPage() {
                         .join(' · ')}
                     </p>
                     {saved && (
-                      <p className="mt-0.5 truncate text-xs text-accent/80">
+                      <p className="mt-0.5 truncate text-xs text-accent">
                         {saved.status === 'watched' ? 'Watched' : 'On your list'}
                       </p>
                     )}
@@ -231,7 +255,8 @@ export function SearchPage() {
                     saved ? removeMovie(movie.id) : saveMovie(movie, 'want', movieGenres(movie))
                   }
                   aria-label={saved ? `Remove ${movie.title} from your list` : `Add ${movie.title} to want to watch`}
-                  className={`flex h-10 w-10 flex-none items-center justify-center rounded-full transition-colors ${
+                  aria-pressed={!!saved}
+                  className={`flex h-11 w-11 flex-none items-center justify-center rounded-full transition-colors ${
                     saved
                       ? 'bg-accent text-bg'
                       : 'border-2 border-line text-ink-soft active:border-accent active:text-accent'

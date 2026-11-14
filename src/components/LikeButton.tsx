@@ -20,13 +20,16 @@ export function LikeButton({ articleId, count, liked, uid, size = 'compact' }: L
 
   return (
     <button
+      type="button"
       onClick={(e) => {
         e.preventDefault() // cards are inside <Link>s — don't navigate
         e.stopPropagation()
         mutation.mutate({ articleId, like: !shownLiked, uid })
       }}
       aria-label={shownLiked ? 'Unlike' : 'Like'}
-      className={`flex items-center gap-1.5 transition-colors ${
+      aria-pressed={shownLiked}
+      // the heart is small; the padding (cancelled by the margin) is the tap target
+      className={`-m-2.5 flex min-h-11 min-w-11 items-center gap-1.5 p-2.5 transition-colors ${
         shownLiked ? 'text-accent' : 'text-ink-faint active:text-accent'
       } ${size === 'full' ? 'text-sm' : 'text-xs'}`}
     >

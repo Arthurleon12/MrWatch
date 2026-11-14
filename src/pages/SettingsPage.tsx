@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useMyErrorReports } from '../queries'
 import { agoLabel } from '../lib/time'
+import { useBack } from '../lib/useBack'
 import { hasBuiltInTmdbKey, updateSettings, useSettings } from '../store/settings'
 import { tmdbKeyWorks } from '../api/tmdb'
 import { backendReady } from '../lib/supabase'
@@ -10,16 +11,16 @@ import { ChevronLeftIcon } from '../components/icons'
 
 /** App settings: connections and account. Identity stuff stays on Profile. */
 export function SettingsPage() {
-  const navigate = useNavigate()
+  const goBack = useBack('/profile')
   const { session, profileStatus } = useSession()
   const signedIn = !!session && profileStatus === 'ready'
 
   return (
     <div className="px-4 pt-4">
       <button
-        onClick={() => navigate(-1)}
+        onClick={goBack}
         aria-label="Back"
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-ink-soft"
+        className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-ink-soft"
       >
         <ChevronLeftIcon className="h-5 w-5" />
       </button>
@@ -43,7 +44,7 @@ export function SettingsPage() {
             {backendReady && (
               <Link
                 to="/auth"
-                className="mt-3 inline-block rounded-full bg-accent px-4 py-2 font-display text-xs font-bold text-bg"
+                className="mt-3 inline-flex min-h-11 items-center rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
               >
                 Sign in / Create account
               </Link>
@@ -96,7 +97,7 @@ function Diagnostics({ uid }: { uid: string }) {
       <div className="mt-3 flex flex-col gap-2">
         {reports.map((r) => (
           <div key={r.id} className="rounded-xl bg-surface p-3">
-            <p className="flex items-baseline justify-between gap-2 text-[0.62rem] font-bold uppercase tracking-wider">
+            <p className="flex items-baseline justify-between gap-2 text-[0.6875rem] font-bold uppercase tracking-wider">
               <span className="text-accent">{r.kind}</span>
               <span className="font-medium normal-case tracking-normal text-ink-faint">
                 {r.route ?? '—'} · {agoLabel(new Date(r.created_at))}
@@ -142,35 +143,73 @@ function SpoilerControl() {
 /** Signed-in account controls: sign out and (permanent) deletion. */
 function AccountControls({ email }: { email: string }) {
   const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function confirmDelete() {
+    if (deleting) return
+    setDeleting(true)
+    setError(null)
+    try {
+      const err = await deleteAccount()
+      // on success the session ends and this whole panel unmounts
+      if (err) {
+        setError(err)
+        setDeleting(false)
+      }
+    } catch {
+      setError('Couldn’t delete the account — check your connection and try again.')
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="mt-3 rounded-xl bg-surface p-3.5">
       <p className="text-xs text-ink-soft">Signed in as {email || 'your account'} — syncing across devices.</p>
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           onClick={() => void signOut()}
-          className="rounded-full bg-raised px-4 py-2 font-display text-xs font-bold text-ink-soft"
+          disabled={deleting}
+          className="min-h-11 rounded-full bg-raised px-4 font-display text-xs font-bold text-ink-soft disabled:opacity-40"
         >
           Sign out
         </button>
-        {!confirming ? (
-          <button onClick={() => setConfirming(true)} className="text-xs font-medium text-red-400">
-            Delete account
-          </button>
-        ) : (
+        {!confirming && (
           <button
-            onClick={async () => {
-              const err = await deleteAccount()
-              if (err) setError(err)
-            }}
-            className="rounded-full bg-red-400/15 px-4 py-2 font-display text-xs font-bold text-red-400"
+            onClick={() => setConfirming(true)}
+            className="-mx-2 min-h-11 px-2 text-xs font-medium text-red-400"
           >
-            Permanently delete everything?
+            Delete account
           </button>
         )}
       </div>
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      {confirming && (
+        <div className="mt-3 rounded-xl border border-red-400/30 p-3">
+          <p className="text-xs leading-relaxed text-ink-soft">
+            This permanently deletes your account, history, ratings, and posts. It can't be undone.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+              className="min-h-11 rounded-full bg-red-400/15 px-4 font-display text-xs font-bold text-red-400 disabled:opacity-60"
+            >
+              {deleting ? 'Deleting…' : 'Permanently delete everything'}
+            </button>
+            <button
+              onClick={() => {
+                setConfirming(false)
+                setError(null)
+              }}
+              disabled={deleting}
+              className="min-h-11 rounded-full bg-raised px-4 font-display text-xs font-bold text-ink-soft disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {error && <p role="alert" className="mt-2 text-xs text-red-400">{error}</p>}
     </div>
   )
 }
@@ -205,7 +244,7 @@ function TmdbConnect() {
           </div>
           <button
             onClick={() => updateSettings({ tmdbKey: '' })}
-            className="text-xs font-medium text-ink-faint"
+            className="-m-2 min-h-11 p-2 text-xs font-medium text-ink-faint"
           >
             Disconnect
           </button>
@@ -223,26 +262,38 @@ function TmdbConnect() {
             watch". Create a free API key at themoviedb.org → Settings → API, then paste it here.
             It's stored on this device only.
           </p>
-          <div className="mt-2 flex gap-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void connect()
+            }}
+            className="mt-2 flex gap-2"
+          >
             <input
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value)
                 setStatus('idle')
               }}
+              name="tmdb-key"
+              aria-label="TMDB API key"
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="TMDB API key"
               className="min-w-0 flex-1 rounded-lg bg-raised px-3 py-2 text-xs outline-none placeholder:text-ink-faint"
             />
             <button
-              onClick={connect}
+              type="submit"
               disabled={!draft.trim() || status === 'checking'}
-              className="rounded-full bg-accent px-4 py-2 font-display text-xs font-bold text-bg disabled:opacity-40"
+              className="min-h-11 rounded-full bg-accent px-4 font-display text-xs font-bold text-bg disabled:opacity-40"
             >
               {status === 'checking' ? 'Checking…' : 'Connect'}
             </button>
-          </div>
+          </form>
           {status === 'bad' && (
-            <p className="mt-1.5 text-xs text-red-400">
+            <p role="alert" className="mt-1.5 text-xs text-red-400">
               TMDB rejected that key — double-check it and try again.
             </p>
           )}

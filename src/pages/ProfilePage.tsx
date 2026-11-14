@@ -20,6 +20,7 @@ import { useSession } from '../store/session'
 import { agoLabel, epCode, hasAired } from '../lib/time'
 import { compactCount } from '../lib/format'
 import { Poster } from '../components/Poster'
+import { ShareButton } from '../components/ShareButton'
 import { ArrowDownIcon, ArrowUpIcon, GearIcon, HeartIcon, PencilIcon, PlusIcon, UserIcon, XIcon } from '../components/icons'
 
 function move<T>(list: T[], index: number, delta: number): T[] {
@@ -100,13 +101,13 @@ export function ProfilePage() {
           className="relative h-20 w-20 flex-none overflow-hidden rounded-full bg-surface"
         >
           {profile.avatar ? (
-            <img src={profile.avatar} alt="" className="h-full w-full object-cover" />
+            <img src={profile.avatar} alt="" decoding="async" className="h-full w-full object-cover" />
           ) : (
             <span className="flex h-full w-full items-center justify-center text-ink-faint">
               <UserIcon className="h-9 w-9" />
             </span>
           )}
-          <span className="absolute bottom-0 inset-x-0 bg-bg/70 py-0.5 text-center text-[0.55rem] font-medium text-ink-soft">
+          <span className="absolute bottom-0 inset-x-0 bg-bg/70 py-0.5 text-center text-[0.6875rem] font-medium text-ink-soft">
             edit
           </span>
         </button>
@@ -114,30 +115,44 @@ export function ProfilePage() {
           ref={fileRef}
           type="file"
           accept="image/*"
+          aria-label="Profile photo"
+          tabIndex={-1}
           className="hidden"
           onChange={(e) => onPickAvatar(e.target.files?.[0])}
         />
 
-        <div className="flex min-w-0 flex-1 items-center gap-2 pt-1">
+        {/* name on its own line: three 44px buttons beside it left ~7 characters */}
+        <div className="min-w-0 flex-1 pt-0.5">
           <h1 className="truncate font-display text-xl font-bold">@{profile.username || 'you'}</h1>
-          <button
-            onClick={() => {
-              setNameDraft(profile.username)
-              setBioDraft(profile.bio)
-              setEditing(true)
-            }}
-            aria-label="Edit profile"
-            className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-surface text-ink-soft"
-          >
-            <PencilIcon className="h-3.5 w-3.5" />
-          </button>
-          <Link
-            to="/settings"
-            aria-label="Settings"
-            className="ml-auto flex h-9 w-9 flex-none items-center justify-center rounded-full bg-surface text-ink-soft"
-          >
-            <GearIcon className="h-4.5 w-4.5" />
-          </Link>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={() => {
+                setNameDraft(profile.username)
+                setBioDraft(profile.bio)
+                setEditing(true)
+              }}
+              aria-label="Edit profile"
+              className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-surface text-ink-soft"
+            >
+              <PencilIcon className="h-4 w-4" />
+            </button>
+            {/* the invite link only means something once the profile is public */}
+            {signedIn && profile.username && (
+              <ShareButton
+                path={`/u/${profile.username}`}
+                title="Follow me on MrWatch"
+                text={`I'm @${profile.username} on MrWatch — follow me and see what I'm watching.`}
+                label="Invite friends — share your profile"
+              />
+            )}
+            <Link
+              to="/settings"
+              aria-label="Settings"
+              className="ml-auto flex h-11 w-11 flex-none items-center justify-center rounded-full bg-surface text-ink-soft"
+            >
+              <GearIcon className="h-4.5 w-4.5" />
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -157,7 +172,7 @@ export function ProfilePage() {
               <p className="font-display text-lg font-bold tabular-nums">
                 {typeof n === 'number' ? compactCount(n) : n}
               </p>
-              <p className="text-[0.6rem] uppercase tracking-wider text-ink-faint">{label}</p>
+              <p className="text-[0.6875rem] text-ink-faint">{label}</p>
             </>
           )
           return to ? (
@@ -168,7 +183,7 @@ export function ProfilePage() {
         })}
       </div>
       {!signedIn && (
-        <p className="mt-2 text-center text-[0.68rem] text-ink-faint">
+        <p className="mt-2 text-center text-[0.6875rem] text-ink-faint">
           {backendReady
             ? 'Sign in to sync your history and follow people.'
             : 'Followers and following light up when MrWatch accounts launch.'}
@@ -188,7 +203,7 @@ export function ProfilePage() {
         profile.bio ? (
           <p className="mt-4 text-sm leading-snug text-ink-soft">{profile.bio}</p>
         ) : (
-          <button onClick={() => { setNameDraft(profile.username); setBioDraft(profile.bio); setEditing(true) }} className="mt-4 text-left text-sm text-ink-faint">
+          <button onClick={() => { setNameDraft(profile.username); setBioDraft(profile.bio); setEditing(true) }} className="mt-2 min-h-11 text-left text-sm text-ink-faint">
             Add a description…
           </button>
         )
@@ -198,13 +213,19 @@ export function ProfilePage() {
             value={nameDraft}
             onChange={(e) => setNameDraft(e.target.value)}
             placeholder="username"
+            aria-label="Username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={20}
             className="rounded-lg bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint"
           />
-          {nameError && <p className="text-xs text-red-400">{nameError}</p>}
+          {nameError && <p role="alert" className="text-xs text-red-400">{nameError}</p>}
           <textarea
             value={bioDraft}
             onChange={(e) => setBioDraft(e.target.value)}
             placeholder="Describe yourself — favorite genres, what you're bingeing…"
+            aria-label="About you"
             rows={3}
             maxLength={200}
             className="resize-none rounded-lg bg-surface px-3 py-2 text-sm outline-none placeholder:text-ink-faint"
@@ -212,13 +233,13 @@ export function ProfilePage() {
           <div className="flex gap-2">
             <button
               onClick={saveEdits}
-              className="rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+              className="min-h-11 rounded-full bg-accent px-5 font-display text-xs font-bold text-bg"
             >
               Save
             </button>
             <button
               onClick={() => setEditing(false)}
-              className="rounded-full bg-surface px-4 py-1.5 font-display text-xs font-bold text-ink-soft"
+              className="min-h-11 rounded-full bg-surface px-5 font-display text-xs font-bold text-ink-soft"
             >
               Cancel
             </button>
@@ -230,7 +251,7 @@ export function ProfilePage() {
       <section className="mt-8">
         <div className="flex items-baseline justify-between">
           <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Top 10 shows</h2>
-          <button onClick={() => setEditShows((v) => !v)} className="text-xs font-medium text-accent">
+          <button onClick={() => setEditShows((v) => !v)} aria-pressed={editShows} className="-m-2 min-h-11 p-2 text-xs font-medium text-accent">
             {editShows ? 'Done' : 'Edit'}
           </button>
         </div>
@@ -250,10 +271,10 @@ export function ProfilePage() {
                 {s.name}
               </Link>
               {editShows && (
-                <span className="flex flex-none gap-1">
-                  <button onClick={() => setTop10Shows(move(profile.top10Shows, i, -1))} aria-label="Move up" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => setTop10Shows(move(profile.top10Shows, i, 1))} aria-label="Move down" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => setTop10Shows(profile.top10Shows.filter((x) => x.id !== s.id))} aria-label="Remove" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
+                <span className="flex flex-none gap-1.5">
+                  <button onClick={() => setTop10Shows(move(profile.top10Shows, i, -1))} aria-label={`Move ${s.name} up`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Shows(move(profile.top10Shows, i, 1))} aria-label={`Move ${s.name} down`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Shows(profile.top10Shows.filter((x) => x.id !== s.id))} aria-label={`Remove ${s.name}`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
                 </span>
               )}
             </li>
@@ -286,7 +307,7 @@ export function ProfilePage() {
                         <PlusIcon className="h-3 w-3" />
                       </span>
                     </span>
-                    <span className="mt-1 block truncate text-[0.6rem] text-ink-soft">{t.name}</span>
+                    <span className="mt-1 block truncate text-[0.6875rem] text-ink-soft">{t.name}</span>
                   </button>
                 ))}
             </div>
@@ -298,7 +319,7 @@ export function ProfilePage() {
       <section className="mt-8">
         <div className="flex items-baseline justify-between">
           <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Top 10 episodes</h2>
-          <button onClick={() => setEditEpisodes((v) => !v)} className="text-xs font-medium text-accent">
+          <button onClick={() => setEditEpisodes((v) => !v)} aria-pressed={editEpisodes} className="-m-2 min-h-11 p-2 text-xs font-medium text-accent">
             {editEpisodes ? 'Done' : 'Edit'}
           </button>
         </div>
@@ -321,10 +342,10 @@ export function ProfilePage() {
                 </span>
               </Link>
               {editEpisodes && (
-                <span className="flex flex-none gap-1">
-                  <button onClick={() => setTop10Episodes(move(profile.top10Episodes, i, -1))} aria-label="Move up" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => setTop10Episodes(move(profile.top10Episodes, i, 1))} aria-label="Move down" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => setTop10Episodes(profile.top10Episodes.filter((x) => x.id !== e.id))} aria-label="Remove" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
+                <span className="flex flex-none gap-1.5">
+                  <button onClick={() => setTop10Episodes(move(profile.top10Episodes, i, -1))} aria-label={`Move ${e.name} up`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Episodes(move(profile.top10Episodes, i, 1))} aria-label={`Move ${e.name} down`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Episodes(profile.top10Episodes.filter((x) => x.id !== e.id))} aria-label={`Remove ${e.name}`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
                 </span>
               )}
             </li>
@@ -338,7 +359,7 @@ export function ProfilePage() {
       <section className="mt-8">
         <div className="flex items-baseline justify-between">
           <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">Top 10 movies</h2>
-          <button onClick={() => setEditMovies((v) => !v)} className="text-xs font-medium text-accent">
+          <button onClick={() => setEditMovies((v) => !v)} aria-pressed={editMovies} className="-m-2 min-h-11 p-2 text-xs font-medium text-accent">
             {editMovies ? 'Done' : 'Edit'}
           </button>
         </div>
@@ -362,10 +383,10 @@ export function ProfilePage() {
                 {m.name}
               </Link>
               {editMovies && (
-                <span className="flex flex-none gap-1">
-                  <button onClick={() => setTop10Movies(move(profile.top10Movies, i, -1))} aria-label="Move up" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => setTop10Movies(move(profile.top10Movies, i, 1))} aria-label="Move down" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => setTop10Movies(profile.top10Movies.filter((x) => x.id !== m.id))} aria-label="Remove" className="flex h-8 w-8 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
+                <span className="flex flex-none gap-1.5">
+                  <button onClick={() => setTop10Movies(move(profile.top10Movies, i, -1))} aria-label={`Move ${m.name} up`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowUpIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Movies(move(profile.top10Movies, i, 1))} aria-label={`Move ${m.name} down`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><ArrowDownIcon className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setTop10Movies(profile.top10Movies.filter((x) => x.id !== m.id))} aria-label={`Remove ${m.name}`} className="flex h-11 w-10 items-center justify-center rounded-full bg-raised text-ink-soft"><XIcon className="h-3.5 w-3.5" /></button>
                 </span>
               )}
             </li>
@@ -402,7 +423,7 @@ export function ProfilePage() {
                         <PlusIcon className="h-3 w-3" />
                       </span>
                     </span>
-                    <span className="mt-1 block truncate text-[0.6rem] text-ink-soft">{m.title}</span>
+                    <span className="mt-1 block truncate text-[0.6875rem] text-ink-soft">{m.title}</span>
                   </button>
                 ))}
             </div>
@@ -448,7 +469,7 @@ export function ProfilePage() {
                   {moviesWanted.map((m) => (
                     <Link key={m.id} to={`/movie/${m.id}`} className="w-20 flex-none">
                       <Poster src={m.poster} alt={m.title} kind="movie" className="aspect-[2/3] w-full rounded-lg" />
-                      <span className="mt-1 block truncate text-[0.62rem] text-ink-soft">{m.title}</span>
+                      <span className="mt-1 block truncate text-[0.6875rem] text-ink-soft">{m.title}</span>
                     </Link>
                   ))}
                 </div>
@@ -514,10 +535,10 @@ function MyPostsSection({ signedIn, uid }: { signedIn: boolean; uid: string | un
         <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em]">
           Posts{rows.length > 0 && <span className="ml-2 text-xs font-medium text-ink-faint">{rows.length}</span>}
         </h2>
-        <Link to="/write" className="text-xs font-medium text-accent">Write</Link>
+        <Link to="/write" className="-m-2 flex min-h-11 items-center p-2 text-xs font-medium text-accent">Write</Link>
       </div>
 
-      <p className="mt-1.5 text-[0.68rem] text-ink-faint">
+      <p className="mt-1.5 text-[0.6875rem] text-ink-faint">
         {signedIn
           ? isLoading
             ? 'Checking your account storage…'
@@ -537,7 +558,7 @@ function MyPostsSection({ signedIn, uid }: { signedIn: boolean; uid: string | un
             <span className="flex items-center gap-2">
               <span className="min-w-0 flex-1">
                 {a.subject?.showName && (
-                  <span className="font-display text-[0.62rem] font-bold uppercase tracking-wider text-accent">
+                  <span className="font-display text-[0.6875rem] font-bold uppercase tracking-wider text-accent">
                     {a.subject.showName}
                     {a.subject.epCode ? ` · ${a.subject.epCode}` : ''}
                   </span>
@@ -551,7 +572,7 @@ function MyPostsSection({ signedIn, uid }: { signedIn: boolean; uid: string | un
                   <span className="tabular-nums">{compactCount(likeCount(a.id))}</span>
                 </span>
               ) : (
-                <span className="flex-none rounded-full border border-line px-2 py-0.5 font-display text-[0.6rem] font-bold uppercase tracking-wider text-ink-faint">
+                <span className="flex-none rounded-full border border-line px-2 py-0.5 font-display text-[0.6875rem] font-bold uppercase tracking-wider text-ink-faint">
                   not synced
                 </span>
               )}
@@ -597,6 +618,7 @@ function EpisodePicker() {
       <select
         value={showId}
         onChange={(e) => setShowId(e.target.value ? Number(e.target.value) : '')}
+        aria-label="Show"
         className="rounded-lg bg-surface px-3 py-2.5 text-sm text-ink outline-none"
       >
         <option value="">Pick a show…</option>
@@ -607,6 +629,7 @@ function EpisodePicker() {
       {showId !== '' && (
         <select
           defaultValue=""
+          aria-label="Episode to add"
           onChange={(e) => {
             if (e.target.value) addEpisode(Number(e.target.value))
             e.target.value = ''

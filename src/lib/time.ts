@@ -48,9 +48,13 @@ export function timeOfDay(date: Date): string {
   return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
-/** "3d ago", "2w ago" — how long an episode has been waiting. */
+/**
+ * "3d ago", "2w ago" — how long an episode has been waiting. Counted in
+ * calendar days, in the user's timezone: something from 11pm last night is
+ * "yesterday" at 1am, not "today".
+ */
 export function agoLabel(date: Date, now = new Date()): string {
-  const days = Math.floor((now.getTime() - date.getTime()) / DAY_MS)
+  const days = Math.round((startOfDay(now).getTime() - startOfDay(date).getTime()) / DAY_MS)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   if (days < 7) return `${days}d ago`

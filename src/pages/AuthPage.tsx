@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { backendReady, supabase } from '../lib/supabase'
 import {
   markProfileClaimed,
@@ -8,14 +8,27 @@ import {
   verifyEmailCode,
   useSession,
 } from '../store/session'
+import { getProfileState, updateProfile, validateUsername } from '../store/profile'
+import { clearReturnPath, readReturnPath, safeReturnPath, stashReturnPath } from '../lib/returnTo'
+import { PageSkeleton } from '../components/AppShell'
 
 // Apple stays hidden until the provider is configured in Supabase — a live
 // button that dead-ends on an error page is worse than no button.
 const APPLE_LOGIN_READY = ((import.meta.env.VITE_APPLE_LOGIN as string | undefined) ?? '') === '1'
-import { getProfileState, updateProfile, validateUsername } from '../store/profile'
 
 export function AuthPage() {
   const { session, profileStatus, initializing } = useSession()
+  const [params] = useSearchParams()
+  const next = params.get('next')
+
+  // The screen that sent the visitor here. Stashed (after validation) because
+  // the OAuth and magic-link round trips both return to a bare /auth.
+  // (Not once signed in and set up: by then the redirect below has consumed
+  // and cleared it, and stashing again would leak into the next sign-in.)
+  const settled = !!session && profileStatus === 'ready'
+  useEffect(() => {
+    if (!settled) stashReturnPath(next)
+  }, [next, settled])
 
   if (!backendReady) {
     return (
@@ -31,37 +44,70 @@ export function AuthPage() {
     )
   }
 
-  if (initializing) {
-    return <div className="px-4 pt-10"><div className="h-40 animate-pulse rounded-xl bg-surface" /></div>
-  }
+  if (initializing) return <PageSkeleton />
 
-  if (session && profileStatus === 'ready') return <Navigate to="/profile" replace />
+  // signed in, but we don't yet know whether a username exists — showing the
+  // sign-in form here made people tap "Continue with Google" a second time
+  if (session && profileStatus === 'unknown') return <PageSkeleton />
+  if (settled) return <ReturnRedirect next={next} />
   if (session && profileStatus === 'missing') return <ClaimUsername />
 
   return <SignIn />
 }
 
+/** Signed in and set up: back to the screen that asked for sign-in, else Profile. */
+function ReturnRedirect({ next }: { next: string | null }) {
+  // read once — the effect below clears it, and a re-render must not change the target.
+  // ?next= on this very URL wins (code sign-in never leaves the page); the stash
+  // covers the OAuth / magic-link return, which arrives without it.
+  const [to] = useState(() => safeReturnPath(next) ?? readReturnPath() ?? '/profile')
+  useEffect(() => {
+    clearReturnPath()
+  }, [])
+  return <Navigate to={to} replace />
+}
+
 function SignIn() {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
   const [code, setCode] = useState('')
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function sendLink() {
+  const emailReady = email.includes('@')
+  const codeReady = code.trim().length >= 6
+
+  async function sendLink(event: FormEvent) {
+    event.preventDefault()
+    if (!emailReady || sending) return
+    setSending(true)
     setError(null)
-    const err = await signInWithEmail(email.trim())
-    if (err) setError(err)
-    else setSent(true)
+    try {
+      const err = await signInWithEmail(email.trim())
+      if (err) setError(err)
+      else setSent(true)
+    } catch {
+      setError('Couldn’t send the email — check your connection and try again.')
+    } finally {
+      setSending(false)
+    }
   }
 
-  async function submitCode() {
+  async function submitCode(event: FormEvent) {
+    event.preventDefault()
+    if (!codeReady || checking) return
     setChecking(true)
     setError(null)
-    const err = await verifyEmailCode(email.trim(), code)
-    setChecking(false)
-    if (err) setError(err.includes('expired') || err.includes('invalid') ? 'That code didn’t match — check the email and try again.' : err)
-    // success: the auth listener takes over and this screen navigates away
+    try {
+      const err = await verifyEmailCode(email.trim(), code)
+      if (err) setError(err.includes('expired') || err.includes('invalid') ? 'That code didn’t match — check the email and try again.' : err)
+      // success: the auth listener takes over and this screen navigates away
+    } catch {
+      setError('Couldn’t check the code — check your connection and try again.')
+    } finally {
+      setChecking(false)
+    }
   }
 
   return (
@@ -75,6 +121,7 @@ function SignIn() {
 
       <div className="mt-8 flex flex-col gap-3">
         <button
+          type="button"
           onClick={() => signInWithProvider('google')}
           className="rounded-full bg-ink py-3 font-display text-sm font-bold text-bg"
         >
@@ -82,6 +129,7 @@ function SignIn() {
         </button>
         {APPLE_LOGIN_READY && (
           <button
+            type="button"
             onClick={() => signInWithProvider('apple')}
             className="rounded-full bg-ink py-3 font-display text-sm font-bold text-bg"
           >
@@ -89,13 +137,13 @@ function SignIn() {
           </button>
         )}
 
-        <div className="my-2 flex items-center gap-3 text-[0.65rem] uppercase tracking-widest text-ink-faint">
+        <div className="my-2 flex items-center gap-3 text-[0.6875rem] uppercase tracking-widest text-ink-faint">
           <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
         </div>
 
         {sent ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-center text-sm text-ink-soft">
+          <form onSubmit={submitCode} className="flex flex-col gap-2">
+            <p id="code-help" className="text-center text-sm text-ink-soft">
               Check your email — tap the link, or type the code from the email here (best when
               MrWatch is on your home screen):
             </p>
@@ -103,41 +151,53 @@ function SignIn() {
               <input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
+                name="code"
                 inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
                 autoComplete="one-time-code"
+                aria-label="6-digit code"
+                aria-describedby="code-help"
                 placeholder="6-digit code"
                 className="min-w-0 flex-1 rounded-full bg-surface px-4 py-3 text-center tracking-[0.3em] outline-none placeholder:tracking-normal placeholder:text-ink-faint"
               />
               <button
-                onClick={submitCode}
-                disabled={code.trim().length < 6 || checking}
+                type="submit"
+                disabled={!codeReady || checking}
                 className="rounded-full bg-accent px-5 font-display text-sm font-bold text-bg disabled:opacity-40"
               >
                 {checking ? '…' : 'Sign in'}
               </button>
             </div>
-          </div>
+          </form>
         ) : (
-          <div className="flex gap-2">
+          <form onSubmit={sendLink} className="flex gap-2">
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
+              name="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="send"
+              aria-label="Email address"
               placeholder="you@email.com"
               className="min-w-0 flex-1 rounded-full bg-surface px-4 py-3 text-sm outline-none placeholder:text-ink-faint"
             />
             <button
-              onClick={sendLink}
-              disabled={!email.includes('@')}
+              type="submit"
+              disabled={!emailReady || sending}
               className="rounded-full bg-accent px-5 font-display text-sm font-bold text-bg disabled:opacity-40"
             >
-              Send link
+              {sending ? 'Sending…' : 'Send link'}
             </button>
-          </div>
+          </form>
         )}
-        {error && <p className="text-center text-xs text-red-400">{error}</p>}
+        {error && <p role="alert" className="text-center text-xs text-red-400">{error}</p>}
 
-        <p className="mt-3 text-center text-[0.68rem] leading-relaxed text-ink-faint">
+        <p className="mt-3 text-center text-[0.6875rem] leading-relaxed text-ink-faint">
           Your on-device history moves into your account the first time you sign in.
         </p>
       </div>
@@ -187,27 +247,43 @@ function ClaimUsername() {
       <p className="mt-1 text-sm text-ink-soft">
         It's how friends find and follow you. 3–20 characters; letters, numbers, underscores.
       </p>
-      <div className="mt-5 flex items-center gap-1 rounded-full bg-surface px-4">
-        <span className="text-ink-faint">@</span>
-        <input
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value)
-            setError(null)
-          }}
-          autoFocus
-          placeholder="yourname"
-          className="min-w-0 flex-1 bg-transparent py-3 outline-none placeholder:text-ink-faint"
-        />
-      </div>
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      <button
-        onClick={claim}
-        disabled={saving || name.trim().length < 3}
-        className="mt-4 rounded-full bg-accent py-3 font-display text-sm font-bold text-bg disabled:opacity-40"
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!saving && name.trim().length >= 3) void claim()
+        }}
+        className="flex flex-col"
       >
-        {saving ? 'Claiming…' : 'Claim username'}
-      </button>
+        <div className="mt-5 flex items-center gap-1 rounded-full bg-surface px-4">
+          <span aria-hidden="true" className="text-ink-faint">@</span>
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value)
+              setError(null)
+            }}
+            autoFocus
+            name="username"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={20}
+            enterKeyHint="done"
+            aria-label="Username"
+            placeholder="yourname"
+            className="min-w-0 flex-1 bg-transparent py-3 outline-none placeholder:text-ink-faint"
+          />
+        </div>
+        {error && <p role="alert" className="mt-2 text-xs text-red-400">{error}</p>}
+        <button
+          type="submit"
+          disabled={saving || name.trim().length < 3}
+          className="mt-4 rounded-full bg-accent py-3 font-display text-sm font-bold text-bg disabled:opacity-40"
+        >
+          {saving ? 'Claiming…' : 'Claim username'}
+        </button>
+      </form>
     </div>
   )
 }

@@ -44,7 +44,15 @@ export interface ShowProgress {
    * you're "up to". Null when you're fully caught up: then nothing can spoil.
    */
   frontier: EpisodeRef | null
+  /**
+   * Episodes already watched, as "season x number" keys. A title you have
+   * seen is never a spoiler, wherever the frontier sits — skip season 1 and
+   * the season 2 episodes you did watch must still read normally.
+   */
+  watchedRefs: Set<string>
 }
+
+const refKey = (ref: EpisodeRef) => `${ref.season}x${ref.number}`
 
 /**
  * Where the viewer is up to in each show. Only shows we hold episode metadata
@@ -59,12 +67,18 @@ export function buildProgress(
   for (const show of details) {
     const seen = new Set(watched[show.id] ?? [])
     let frontier: EpisodeRef | null = null
+    const watchedRefs = new Set<string>()
     for (const ep of show._embedded?.episodes ?? []) {
-      if (ep.number === null || seen.has(ep.id) || !hasAired(ep, now)) continue
+      if (ep.number === null) continue
       const ref = { season: ep.season, number: ep.number }
+      if (seen.has(ep.id)) {
+        watchedRefs.add(refKey(ref))
+        continue
+      }
+      if (!hasAired(ep, now)) continue
       if (!frontier || compareRefs(ref, frontier) < 0) frontier = ref
     }
-    progress.set(show.id, { frontier })
+    progress.set(show.id, { frontier, watchedRefs })
   }
   return progress
 }
@@ -75,5 +89,23 @@ export function buildProgress(
  */
 export function isSpoiler(ref: EpisodeRef | null, progress: ShowProgress | undefined): boolean {
   if (!ref || !progress?.frontier) return false
+  if (progress.watchedRefs.has(refKey(ref))) return false
   return compareRefs(ref, progress.frontier) > 0
+}
+
+/**
+ * The guard's decision for one title on screen. `isSpoiler` answers for a show
+ * whose progress is known; this adds the case it can't see: a show you DO
+ * track whose episode metadata hasn't loaded (or failed to). There the guard
+ * fails closed — the title stays hidden until we know where you're up to,
+ * because a spoiler shown for half a second is still a spoiler.
+ */
+export function hidesEpisode(
+  ref: EpisodeRef | null,
+  progress: ShowProgress | undefined,
+  tracked: boolean,
+): boolean {
+  if (!ref || !tracked) return false
+  if (!progress) return true
+  return isSpoiler(ref, progress)
 }

@@ -63,7 +63,7 @@ export function SchedulePage() {
           <p className="text-xs text-ink-soft">Some shows couldn't load — the calendar may be incomplete.</p>
           <button
             onClick={() => errored.forEach((q) => void q.refetch())}
-            className="flex-none rounded-full bg-accent px-4 py-1.5 font-display text-xs font-bold text-bg"
+            className="min-h-11 flex-none rounded-full bg-accent px-4 font-display text-xs font-bold text-bg"
           >
             Retry
           </button>
@@ -95,30 +95,41 @@ export function SchedulePage() {
                 )}
               </h2>
               <div className="mt-2 flex flex-col gap-2">
-                {items.map(({ show, ep, at }) => (
-                  <Link
-                    key={ep.id}
-                    to={`/show/${show.id}`}
-                    className="flex items-center gap-3 rounded-xl bg-surface p-2.5"
-                  >
-                    <Poster src={show.image?.medium} alt="" className="h-14 w-10 flex-none rounded-md" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-display text-sm font-bold">{show.name}</p>
-                      <p className="truncate text-xs text-ink-soft">
-                        <span className="font-medium text-accent">{epCode(ep)}</span>
-                        {ep.name && ' · '}
-                        {ep.name &&
-                          (ep.number !== null &&
-                          spoilers.hides(show.id, { season: ep.season, number: ep.number }) ? (
-                            <SpoilerText label={`${epCode(ep)} title hidden`}>{ep.name}</SpoilerText>
-                          ) : (
-                            ep.name
-                          ))}
-                      </p>
+                {items.map(({ show, ep, at }) => {
+                  const hidden =
+                    ep.number !== null &&
+                    spoilers.hides(show.id, { season: ep.season, number: ep.number })
+                  return (
+                    // one stretched link per row; the spoiler control sits above
+                    // it rather than inside it (a button nested in a link is invalid)
+                    <div key={ep.id} className="relative rounded-xl bg-surface p-2.5">
+                      <Link
+                        to={`/show/${show.id}`}
+                        aria-label={`${show.name} ${epCode(ep)}, ${timeOfDay(at)}`}
+                        className="absolute inset-0 rounded-xl"
+                      />
+                      <div className="pointer-events-none relative flex items-center gap-3">
+                        <Poster src={show.image?.medium} alt="" className="h-14 w-10 flex-none rounded-md" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-display text-sm font-bold">{show.name}</p>
+                          <p className="truncate text-xs text-ink-soft">
+                            <span className="font-medium text-accent">{epCode(ep)}</span>
+                            {ep.name && ' · '}
+                            {ep.name &&
+                              (hidden ? (
+                                <SpoilerText label={`${epCode(ep)} title hidden`} className="pointer-events-auto">
+                                  {ep.name}
+                                </SpoilerText>
+                              ) : (
+                                ep.name
+                              ))}
+                          </p>
+                        </div>
+                        <span className="flex-none text-xs font-medium text-ink-faint">{timeOfDay(at)}</span>
+                      </div>
                     </div>
-                    <span className="flex-none text-xs font-medium text-ink-faint">{timeOfDay(at)}</span>
-                  </Link>
-                ))}
+                  )
+                })}
               </div>
             </section>
           )
@@ -137,7 +148,7 @@ export function SchedulePage() {
             {waitingForDate.map((show) => (
               <Link key={show.id} to={`/show/${show.id}`} className="w-20 flex-none">
                 <Poster src={show.image?.medium} alt={show.name} className="h-28 w-20 rounded-lg" />
-                <p className="mt-1 truncate text-[0.68rem] text-ink-soft">{show.name}</p>
+                <p className="mt-1 truncate text-[0.6875rem] text-ink-soft">{show.name}</p>
               </Link>
             ))}
           </div>

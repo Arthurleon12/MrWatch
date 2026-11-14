@@ -115,6 +115,13 @@ encrypts it, and stores it as a build artifact for 90 days. To activate:
 
 Restore instructions are in the workflow file header.
 
+**If backups stop:** GitHub disables scheduled workflows on a repo that has had no
+commits for 60 days (this happened in November 2026). The Actions tab then shows
+"This scheduled workflow is disabled" — click **Enable workflow**, then **Run
+workflow**. Merging the weekly Dependabot pull request (section 11) counts as
+activity and prevents it. Every month or two, download the newest artifact to your
+own storage: 90 days is the only retention GitHub gives you.
+
 ## 9. Error reporting — ~1 min (one SQL run)
 
 Production failures happen in someone else's browser, where nothing else can see
@@ -131,6 +138,40 @@ Read the reports in **Table editor → client_errors** (the dashboard sees every
 users only ever see their own, in Settings → Diagnostics). What's stored: what broke,
 which screen it happened on as a route *pattern* (`/u/:username`, never the actual
 profile), the build it came from, and the browser. No page content, no usernames.
+
+## 10. Database hardening — ~2 min (one SQL run)
+
+Because the app's key ships in the browser, anyone can call the database API
+directly; row-level security is what protects the data. This migration adds the
+limits the policies alone don't give you: size and shape checks on everything a
+user can write (a malformed post could otherwise crash the feed for everybody),
+per-user row quotas, a throttle on anonymous error reports, one notification per
+follow/like instead of one per tap, and avatars restricted to uploaded images.
+
+Open Supabase → **SQL Editor → New query**, run the five `select` pre-checks in the
+header of
+[`supabase/migrations/2026-11-14-hardening.sql`](supabase/migrations/2026-11-14-hardening.sql)
+first, then run the file. It is safe to run twice. A fresh project that ran the
+current `supabase/schema.sql` already has all of it — and all earlier migrations.
+
+## 11. Staying up to date — ~3 min, once
+
+`.github/dependabot.yml` opens **one pull request every Monday** with all the
+minor and patch dependency updates (security fixes arrive as soon as they exist;
+major versions come separately). CI runs lint, typecheck, tests, a production
+build and a vulnerability check on it. When it is green, merge it — Vercel deploys.
+
+Two settings make this safe, both in the GitHub repo:
+
+1. **Settings → Code security** → turn on *Dependabot alerts* and *Dependabot
+   security updates*.
+2. **Settings → Rules → Rulesets → New branch ruleset** on `main`: enable
+   *Require status checks to pass* and add the check named `check`; enable *Block
+   force pushes*. Without this, CI is only advice — a red build still deploys.
+
+For updates that touch what runs in the browser (react, react-router, supabase,
+react-query), open the Vercel preview link on the pull request and click around
+for a minute before merging.
 
 ## What your friends experience
 

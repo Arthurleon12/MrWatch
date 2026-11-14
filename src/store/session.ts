@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { clearLocalData, startSync, stopSync, pullAndHydrate } from '../lib/sync'
+import { clearLocalData, flushSync, startSync, stopSync, pullAndHydrate } from '../lib/sync'
 
 /**
  * Auth session state. `profileStatus` tracks whether the signed-in user has
@@ -38,20 +38,38 @@ export function getSession(): Session | null {
   return state.session
 }
 
+const RETRY_MS = 5000
+let refreshingFor: string | null = null
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+
 async function refreshProfileStatus() {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = null
   if (!supabase || !state.session) {
     set({ profileStatus: 'unknown' })
     return
   }
-  const { data } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('id', state.session.user.id)
-    .maybeSingle()
-  set({ profileStatus: data ? 'ready' : 'missing' })
-  if (data) {
-    await pullAndHydrate(state.session.user.id)
-    startSync()
+  const uid = state.session.user.id
+  if (refreshingFor === uid) return // boot fires this twice; one lookup is enough
+  refreshingFor = uid
+  try {
+    const { data, error } = await supabase.from('profiles').select('id').eq('id', uid).maybeSingle()
+    if (state.session?.user.id !== uid) return // signed out or switched meanwhile
+    if (error) {
+      // A failed lookup is NOT "no profile": treating it as one sends an
+      // existing user to the username-claim screen. Stay unknown and retry.
+      set({ profileStatus: 'unknown' })
+      retryTimer = setTimeout(() => void refreshProfileStatus(), RETRY_MS)
+      return
+    }
+    set({ profileStatus: data ? 'ready' : 'missing' })
+    if (data) {
+      // listen first: an edit made while the pull is in flight is kept
+      startSync()
+      await pullAndHydrate(uid)
+    }
+  } finally {
+    if (refreshingFor === uid) refreshingFor = null
   }
 }
 
@@ -81,8 +99,8 @@ export async function markProfileClaimed() {
   set({ profileStatus: 'ready' })
   if (state.session) {
     // the one moment pre-account on-device history seeds the new account
-    await pullAndHydrate(state.session.user.id, true)
     startSync()
+    await pullAndHydrate(state.session.user.id, true)
   }
 }
 
@@ -114,6 +132,7 @@ export async function verifyEmailCode(email: string, code: string): Promise<stri
 }
 
 export async function signOut() {
+  await flushSync() // an edit made a second ago must reach the cloud before the device is wiped
   stopSync()
   await supabase?.auth.signOut()
   clearLocalData() // the next account on this device starts clean

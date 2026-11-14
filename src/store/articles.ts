@@ -34,6 +34,7 @@ function load(): Article[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const list = JSON.parse(raw) as Article[]
+      if (!Array.isArray(list)) return []
       // ids written before cloud sync existed weren't UUIDs; the database
       // requires them, so upgrade any legacy id in place
       return list.map((a) => (UUID_RE.test(a.id) ? a : { ...a, id: crypto.randomUUID() }))
@@ -50,7 +51,13 @@ let hydrating = false
 
 function commit(next: Article[]) {
   state = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch (err) {
+    // storage full or blocked: keep working from memory. Listeners and sync
+    // must still run, or every later edit in this store would go unsynced.
+    console.warn('[articles] could not persist to this device', err)
+  }
   listeners.forEach((l) => l())
   if (!hydrating) emitStoreChange('articles')
 }
@@ -62,8 +69,11 @@ export function getArticlesState(): Article[] {
 /** Replace local state with the cloud copy — never triggers a push. */
 export function hydrateArticles(next: Article[]) {
   hydrating = true
-  commit(next)
-  hydrating = false
+  try {
+    commit(next)
+  } finally {
+    hydrating = false
+  }
 }
 
 function subscribe(listener: () => void) {

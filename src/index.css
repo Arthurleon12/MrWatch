@@ -7,7 +7,10 @@
   --color-line: #2a3138;
   --color-ink: #e8eaec;
   --color-ink-soft: #a8b0b8;
-  --color-ink-faint: #6e7880;
+  /* 5.5:1 on surface, 5.0:1 on raised — the old #6e7880 was 3.5–4.1:1 (fails AA) */
+  --color-ink-faint: #8a939b;
+  /* success / "connected" — was referenced as text-good but never defined */
+  --color-good: #4ade80;
   /* brand orange, sampled from the MrWatch logo */
   --color-accent: #ff5201;
   --color-accent-deep: #c23f00;
@@ -17,6 +20,8 @@
 
 html {
   background: var(--color-bg);
+  /* installed on Android, a pull at the top would reload the whole app */
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -28,6 +33,38 @@ body {
   -webkit-tap-highlight-color: transparent;
   /* installed (standalone) mode paints edge-to-edge — keep content below the notch */
   padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* The status bar is translucent in standalone mode, so anything that scrolls
+   up would show through the clock and battery. An opaque strip the height of
+   the notch keeps it clean. (Zero height in a normal browser tab.) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--color-bg);
+  z-index: 30;
+  pointer-events: none;
+}
+
+/* Inputs drop their default outline for the design, which left keyboard
+   users with no focus indicator at all. Elements focused only by script
+   (tabindex="-1", e.g. revealed spoilers) are exempt. */
+:focus-visible:not([tabindex="-1"]) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* iOS zooms the page when a focused input is under 16px — never go below */

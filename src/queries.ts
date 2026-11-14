@@ -10,23 +10,29 @@ import {
   searchMovies,
 } from './api/tmdb'
 import { supabase } from './lib/supabase'
-import { buildTasteSnapshot, type TasteSnapshot, type TasteSourceMovie } from './lib/match'
+import { buildTasteSnapshot, tasteDetailIds, type TasteSnapshot, type TasteSourceMovie } from './lib/match'
 import { fetchAllPages, type PageResult } from './lib/paginate'
 import { showRatings, type ShowRating } from './lib/ratings'
+import { cleanLadder, cleanSubjectLabel } from './lib/sanitize'
 import { useLibrary } from './store/library'
 import { useMovies } from './store/movies'
 import { useProfile, type Top10Show } from './store/profile'
 import { useSettings } from './store/settings'
-import { buildProgress, isSpoiler, parseEpCode, type EpisodeRef } from './lib/spoiler'
+import { buildProgress, hidesEpisode, parseEpCode, type EpisodeRef } from './lib/spoiler'
 import type { TvmShow } from './types'
 
 const SHOW_STALE_MS = 60 * 60 * 1000 // an hour is plenty for episode metadata
+// keep show details in memory for the session: with the default 5 minutes, a
+// visit to a page that doesn't read them drops the lot and the next page
+// refetches every tracked show at once
+const SHOW_GC_MS = 24 * 60 * 60 * 1000
 
 export function useShow(id: number) {
   return useQuery({
     queryKey: ['show', id],
-    queryFn: () => getShowWithEpisodes(id),
+    queryFn: ({ signal }) => getShowWithEpisodes(id, signal),
     staleTime: SHOW_STALE_MS,
+    gcTime: SHOW_GC_MS,
     enabled: id > 0,
   })
 }
@@ -35,18 +41,10 @@ export function useTrackedShowDetails(ids: number[]) {
   return useQueries({
     queries: ids.map((id) => ({
       queryKey: ['show', id],
-      queryFn: () => getShowWithEpisodes(id),
+      queryFn: ({ signal }: { signal: AbortSignal }) => getShowWithEpisodes(id, signal),
       staleTime: SHOW_STALE_MS,
+      gcTime: SHOW_GC_MS,
     })),
-  })
-}
-
-export function useTodaySchedules() {
-  return useQueries({
-    queries: [
-      { queryKey: ['schedule', 'broadcast', isoDate()], queryFn: () => getTodaySchedule(), staleTime: SHOW_STALE_MS },
-      { queryKey: ['schedule', 'web', isoDate()], queryFn: () => getTodayWebSchedule(), staleTime: SHOW_STALE_MS },
-    ],
   })
 }
 
@@ -61,12 +59,12 @@ export function useScheduleWindow() {
     queries: offsets.flatMap((off) => [
       {
         queryKey: ['schedule', 'broadcast', isoDate(off)],
-        queryFn: () => getTodaySchedule(isoDate(off)),
+        queryFn: ({ signal }: { signal: AbortSignal }) => getTodaySchedule(isoDate(off), signal),
         staleTime: SHOW_STALE_MS,
       },
       {
         queryKey: ['schedule', 'web', isoDate(off)],
-        queryFn: () => getTodayWebSchedule(isoDate(off)),
+        queryFn: ({ signal }: { signal: AbortSignal }) => getTodayWebSchedule(isoDate(off), signal),
         staleTime: SHOW_STALE_MS,
       },
     ]),
@@ -77,14 +75,13 @@ export function useScheduleWindow() {
 export function useFansAlsoWatch(seeds: { id: number; name: string; imdb: string | null }[], tmdbKey: string) {
   return useQueries({
     queries: seeds.map((seed) => ({
-      queryKey: ['fans-also-watch', seed.id],
-      queryFn: async (): Promise<{ seedName: string; shows: TvmShow[] }> => ({
+      queryKey: ['fans-also-watch', seed.id, tmdbKey],
+      queryFn: async ({ signal }: { signal: AbortSignal }): Promise<{ seedName: string; shows: TvmShow[] }> => ({
         seedName: seed.name,
-        shows: seed.imdb ? await fansAlsoWatch(seed.imdb, tmdbKey) : [],
+        shows: seed.imdb ? await fansAlsoWatch(seed.imdb, tmdbKey, 6, signal) : [],
       }),
       enabled: tmdbKey.length > 0 && !!seed.imdb,
       staleTime: 24 * 60 * 60 * 1000,
-      retry: 1,
     })),
   })
 }
@@ -92,7 +89,7 @@ export function useFansAlsoWatch(seeds: { id: number; name: string; imdb: string
 export function useSearch(query: string) {
   return useQuery({
     queryKey: ['search', query],
-    queryFn: () => searchShows(query),
+    queryFn: ({ signal }) => searchShows(query, signal),
     enabled: query.trim().length >= 2,
     staleTime: 5 * 60 * 1000,
   })
@@ -102,7 +99,7 @@ export function useSearch(query: string) {
 
 export function useMovieSearch(query: string, tmdbKey: string) {
   return useQuery({
-    queryKey: ['movie-search', query],
+    queryKey: ['movie-search', query, tmdbKey],
     queryFn: () => searchMovies(query, tmdbKey),
     enabled: tmdbKey.length > 0 && query.trim().length >= 2,
     staleTime: 5 * 60 * 1000,
@@ -111,7 +108,7 @@ export function useMovieSearch(query: string, tmdbKey: string) {
 
 export function useMovie(id: number, tmdbKey: string) {
   return useQuery({
-    queryKey: ['movie', id],
+    queryKey: ['movie', id, tmdbKey],
     queryFn: () => getMovie(id, tmdbKey),
     enabled: id > 0 && tmdbKey.length > 0,
     staleTime: SHOW_STALE_MS,
@@ -120,7 +117,7 @@ export function useMovie(id: number, tmdbKey: string) {
 
 export function useMovieRecs(id: number, tmdbKey: string) {
   return useQuery({
-    queryKey: ['movie-recs', id],
+    queryKey: ['movie-recs', id, tmdbKey],
     queryFn: () => getMovieRecommendations(id, tmdbKey),
     enabled: id > 0 && tmdbKey.length > 0,
     staleTime: 24 * 60 * 60 * 1000,
@@ -130,7 +127,7 @@ export function useMovieRecs(id: number, tmdbKey: string) {
 
 export function useNowPlaying(tmdbKey: string) {
   return useQuery({
-    queryKey: ['movies-now-playing'],
+    queryKey: ['movies-now-playing', tmdbKey],
     queryFn: () => getNowPlaying(tmdbKey),
     enabled: tmdbKey.length > 0,
     staleTime: 6 * 60 * 60 * 1000,
@@ -140,7 +137,7 @@ export function useNowPlaying(tmdbKey: string) {
 
 export function useMovieGenreMap(tmdbKey: string) {
   return useQuery({
-    queryKey: ['movie-genres'],
+    queryKey: ['movie-genres', tmdbKey],
     queryFn: () => getMovieGenreMap(tmdbKey),
     enabled: tmdbKey.length > 0,
     staleTime: Infinity,
@@ -194,7 +191,9 @@ export function useLikeMutation() {
         if (error) throw new Error(error.message)
       }
     },
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['likes'] }),
+    // returned, not voided: the mutation stays pending until the refetch
+    // lands, so the optimistic heart never snaps back to the stale value
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['likes'] }),
   })
 }
 
@@ -454,7 +453,7 @@ export function useMyArticles(uid: string | undefined) {
       return (data ?? []).map((a) => ({
         id: a.id,
         title: a.title,
-        subject: a.subject ?? {},
+        subject: cleanSubjectLabel(a.subject),
         createdAt: new Date(a.created_at).getTime(),
       }))
     },
@@ -510,8 +509,9 @@ export function useSpoilerGuard(showIds: number[]) {
 
   const progress = useMemo(
     () => buildProgress(details.map((q) => q.data).filter((d): d is TvmShow => !!d), watched),
+    // ids too: two different sets of shows can share the same timestamps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [details.map((q) => q.dataUpdatedAt).join(','), watched],
+    [ids.join(','), details.map((q) => q.dataUpdatedAt).join(','), watched],
   )
 
   return useMemo(
@@ -521,10 +521,12 @@ export function useSpoilerGuard(showIds: number[]) {
       hides(showId: number, episode: EpisodeRef | string | null | undefined): boolean {
         if (!spoilerGuard) return false
         const ref = typeof episode === 'string' ? parseEpCode(episode) : (episode ?? null)
-        return isSpoiler(ref, progress.get(showId))
+        // a tracked show whose metadata is still loading (or failed) stays
+        // hidden: fail closed, never flash the title first
+        return hidesEpisode(ref, progress.get(showId), showId in shows)
       },
     }),
-    [spoilerGuard, progress],
+    [spoilerGuard, progress, shows],
   )
 }
 
@@ -532,6 +534,20 @@ export function useSpoilerGuard(showIds: number[]) {
 
 /** Bound the TVmaze detail fan-out for genre profiles. */
 const TASTE_DETAIL_CAP = 30
+
+/**
+ * The friend's shows worth fetching genres for — ladder and most-watched
+ * first. Shared so every caller asks for the same set (one cache entry each).
+ */
+export function friendTasteDetailIds(friend: FriendData | null | undefined): number[] {
+  if (!friend) return []
+  return tasteDetailIds(
+    friend.tracks.map((t) => ({ id: t.show_id })),
+    friend.ladderShows,
+    friend.watchedCounts,
+    TASTE_DETAIL_CAP,
+  )
+}
 
 export interface FriendData {
   id: string
@@ -611,8 +627,10 @@ export function useFriendData(username: string, enabled: boolean) {
         tracks: tracks.data ?? [],
         watchedCounts,
         showRatings: friendRatings,
-        ladderShows: prof.top10_shows ?? [],
-        ladderMovies: prof.top10_movies ?? [],
+        // another person's row — never assume the shape
+        // …nor its length: the column is unconstrained, a ladder is ten rungs
+        ladderShows: cleanLadder(prof.top10_shows).slice(0, 10),
+        ladderMovies: cleanLadder(prof.top10_movies).slice(0, 10),
         // movie_tracks may not exist pre-migration → error → treat as none
         movies: (movieRows.data ?? []).map((m): TasteSourceMovie => ({
           id: m.movie_id,
@@ -637,7 +655,15 @@ export function useMyTasteSnapshot(): { snapshot: TasteSnapshot; ready: boolean 
   const tracked = Object.values(shows)
     .sort((a, b) => b.addedAt - a.addedAt)
     .map((s) => ({ id: s.id, name: s.name, image: s.image }))
-  const detailQueries = useTrackedShowDetails(tracked.slice(0, TASTE_DETAIL_CAP).map((s) => s.id))
+  // ladder and most-watched shows first — they carry the most taste weight
+  const detailQueries = useTrackedShowDetails(
+    tasteDetailIds(
+      tracked,
+      profile.top10Shows,
+      Object.fromEntries(Object.entries(watched).map(([id, eps]) => [id, eps.length])),
+      TASTE_DETAIL_CAP,
+    ),
+  )
   const ready = detailQueries.every((q) => !q.isLoading)
 
   const snapshot = useMemo(
@@ -669,8 +695,7 @@ export function useMyTasteSnapshot(): { snapshot: TasteSnapshot; ready: boolean 
 /** A friend's taste snapshot, from their cloud data + TVmaze details. */
 export function useFriendTasteSnapshot(username: string, enabled: boolean) {
   const friend = useFriendData(username, enabled)
-  const trackIds = (friend.data?.tracks ?? []).slice(0, TASTE_DETAIL_CAP).map((t) => t.show_id)
-  const detailQueries = useTrackedShowDetails(trackIds)
+  const detailQueries = useTrackedShowDetails(friendTasteDetailIds(friend.data))
   const ready = !friend.isLoading && detailQueries.every((q) => !q.isLoading)
 
   const snapshot = useMemo(() => {

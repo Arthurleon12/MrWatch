@@ -8,6 +8,7 @@
  */
 
 import type { TvmShow } from '../types'
+import { HttpError, lookupShowByImdb } from './tvmaze'
 
 const BASE = 'https://api.themoviedb.org/3'
 const IMG = 'https://image.tmdb.org/t/p'
@@ -20,15 +21,18 @@ export function tmdbImage(
   return path ? `${IMG}/${size}${path}` : null
 }
 
-async function tmdbGet<T>(path: string, key: string): Promise<T> {
+async function tmdbGet<T>(path: string, key: string, signal?: AbortSignal): Promise<T> {
   // TMDB hands out two credential styles; accept whichever the user pasted:
   // the short v3 "API Key" goes in the query string, the long v4
   // "API Read Access Token" (a JWT, always starts with "eyJ") is a Bearer.
   const isBearer = key.startsWith('eyJ')
   const sep = path.includes('?') ? '&' : '?'
   const url = isBearer ? `${BASE}${path}` : `${BASE}${path}${sep}api_key=${encodeURIComponent(key)}`
-  const res = await fetch(url, isBearer ? { headers: { Authorization: `Bearer ${key}` } } : undefined)
-  if (!res.ok) throw new Error(`TMDB ${res.status} for ${path}`)
+  const res = await fetch(url, {
+    signal,
+    ...(isBearer ? { headers: { Authorization: `Bearer ${key}` } } : {}),
+  })
+  if (!res.ok) throw new HttpError('TMDB', res.status, path)
   return res.json() as Promise<T>
 }
 
@@ -114,29 +118,42 @@ export async function tmdbKeyWorks(key: string): Promise<boolean> {
 /**
  * Given a seed show's IMDb id, return the TVmaze shows that TMDB users who
  * watch the seed also watch. Pipeline: find TMDB id → recommendations →
- * external ids → TVmaze lookup. Failures on individual hops are dropped.
+ * external ids → TVmaze lookup.
+ *
+ * A recommendation that one catalogue simply doesn't have (a 404 on either
+ * hop) is skipped. Anything else — a rate limit, a dropped connection —
+ * rejects the whole call: the result is cached for a day, and a rail cut
+ * short by a 429 must not be remembered as "that's all there is".
  */
-export async function fansAlsoWatch(imdbId: string, key: string, limit = 6): Promise<TvmShow[]> {
-  const found = await tmdbGet<TmdbFindResult>(`/find/${imdbId}?external_source=imdb_id`, key)
-  const tmdbId = found.tv_results[0]?.id
+export async function fansAlsoWatch(
+  imdbId: string,
+  key: string,
+  limit = 6,
+  signal?: AbortSignal,
+): Promise<TvmShow[]> {
+  const found = await tmdbGet<TmdbFindResult>(
+    `/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`,
+    key,
+    signal,
+  )
+  const tmdbId = found.tv_results?.[0]?.id
   if (!tmdbId) return []
 
-  const recs = await tmdbGet<TmdbRecsResult>(`/tv/${tmdbId}/recommendations`, key)
+  const recs = await tmdbGet<TmdbRecsResult>(`/tv/${tmdbId}/recommendations`, key, signal)
 
-  // Sequential on purpose: a parallel burst of TVmaze lookups trips its rate
-  // limit (which then gets cached as an empty rail), and mapping usually
-  // succeeds early so we stop as soon as the rail is full.
+  // Sequential on purpose: mapping usually succeeds early, so we stop as soon
+  // as the rail is full instead of spending TVmaze's rate limit on all of them.
   const shows: TvmShow[] = []
-  for (const rec of recs.results) {
+  for (const rec of recs.results ?? []) {
     if (shows.length >= limit) break
     try {
-      const ext = await tmdbGet<TmdbExternalIds>(`/tv/${rec.id}/external_ids`, key)
+      const ext = await tmdbGet<TmdbExternalIds>(`/tv/${rec.id}/external_ids`, key, signal)
       if (!ext.imdb_id) continue
-      const res = await fetch(`https://api.tvmaze.com/lookup/shows?imdb=${ext.imdb_id}`)
-      if (!res.ok) continue
-      shows.push((await res.json()) as TvmShow)
-    } catch {
-      // skip this recommendation and keep filling the rail
+      shows.push(await lookupShowByImdb(ext.imdb_id, signal))
+    } catch (error) {
+      // not in one of the catalogues — skip it and keep filling the rail
+      if (error instanceof HttpError && error.status === 404) continue
+      throw error
     }
   }
   return shows

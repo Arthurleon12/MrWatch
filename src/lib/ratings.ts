@@ -57,6 +57,8 @@ export function showRatings(
  */
 export function affinityMultiplier(rating: ShowRating | undefined): number {
   if (!rating || rating.count === 0) return 1
+  // a corrupt average must not poison every weight (and percentage) built on it
+  if (!Number.isFinite(rating.avg) || !Number.isFinite(rating.count) || rating.count < 0) return 1
   const signed = clamp((rating.avg - NEUTRAL_RATING) / FULL_SWING_POINTS, -1, 1)
   const confidence = rating.count / (rating.count + CONFIDENCE_K)
   return 1 + MAX_EFFECT * signed * confidence

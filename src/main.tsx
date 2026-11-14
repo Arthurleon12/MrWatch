@@ -5,24 +5,27 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import { Layout } from './components/Layout'
 import { UpNextPage } from './pages/UpNextPage'
-import { SchedulePage } from './pages/SchedulePage'
-import { SearchPage } from './pages/SearchPage'
-import { ShowPage } from './pages/ShowPage'
-import { MoviePage } from './pages/MoviePage'
-import { TogetherPage } from './pages/TogetherPage'
-import { ForYouPage } from './pages/ForYouPage'
-import { ProfilePage } from './pages/ProfilePage'
-import { SettingsPage } from './pages/SettingsPage'
-import { WritePage } from './pages/WritePage'
-import { ArticlePage } from './pages/ArticlePage'
-import { RankPage } from './pages/RankPage'
-import { AuthPage } from './pages/AuthPage'
-import { UserPage } from './pages/UserPage'
-import { NotificationsPage } from './pages/NotificationsPage'
-import { FriendsPage } from './pages/FriendsPage'
+import {
+  ArticlePage,
+  AuthPage,
+  ForYouPage,
+  FriendsPage,
+  MoviePage,
+  NotificationsPage,
+  ProfilePage,
+  RankPage,
+  SchedulePage,
+  SearchPage,
+  SettingsPage,
+  ShowPage,
+  TogetherPage,
+  UserPage,
+  WritePage,
+} from './pages/lazy'
 import { ErrorBoundary, NotFoundPage, ScrollToTop } from './components/AppShell'
 import { initAuth } from './store/session'
 import { initErrorReporting } from './lib/report'
+import { isClientError } from './api/tvmaze'
 
 // before anything else, so a crash during start-up is still reported
 initErrorReporting()
@@ -30,7 +33,13 @@ initAuth()
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false },
+    queries: {
+      // one retry for a blip; none for a 4xx — a removed show or a refused
+      // key answers the same way every time, and asking again only burns
+      // the rate limit
+      retry: (failureCount, error) => failureCount < 1 && !isClientError(error),
+      refetchOnWindowFocus: false,
+    },
   },
 })
 
