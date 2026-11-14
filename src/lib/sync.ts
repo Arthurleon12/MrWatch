@@ -286,6 +286,11 @@ export function stopSync() {
   }
 }
 
+/** True while this account has local edits the cloud has not confirmed. */
+export function hasUnsyncedChanges(uid: string): boolean {
+  return readDirty(uid).size > 0
+}
+
 /** Push every pending edit now and wait for it — used before signing out. */
 export async function flushSync(): Promise<void> {
   flushTimers()

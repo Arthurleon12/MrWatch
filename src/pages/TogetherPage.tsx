@@ -68,6 +68,8 @@ export function TogetherPage() {
   const picksLoading =
     tmdbKey.length > 0 && (nowPlayingQuery.isLoading || recQueries.some((q) => q.isLoading))
 
+  const recStamp = recQueries.map((q) => q.dataUpdatedAt).join(',')
+
   const moviePicks = useMemo(() => {
     const a = mine.snapshot
     const b = theirs.snapshot
@@ -103,14 +105,9 @@ export function TogetherPage() {
       })
       .sort((x, y) => y.joint - x.joint)
       .slice(0, 9)
+    // recQueries is a new array every render; recStamp changes only when its data does
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    mine.snapshot,
-    theirs.snapshot,
-    nowPlaying,
-    genreMap,
-    recQueries.map((q) => q.dataUpdatedAt).join(','),
-  ])
+  }, [mine.snapshot, theirs.snapshot, nowPlaying, genreMap, recStamp])
 
   /* ---------------- shows: their shelf for you + new for both ------------ */
   // the same ids the taste snapshot asks for, so both read one cache entry each

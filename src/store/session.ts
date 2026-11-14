@@ -1,7 +1,14 @@
 import { useSyncExternalStore } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { clearLocalData, flushSync, startSync, stopSync, pullAndHydrate } from '../lib/sync'
+import {
+  clearLocalData,
+  flushSync,
+  hasUnsyncedChanges,
+  startSync,
+  stopSync,
+  pullAndHydrate,
+} from '../lib/sync'
 
 /**
  * Auth session state. `profileStatus` tracks whether the signed-in user has
@@ -104,12 +111,18 @@ export async function markProfileClaimed() {
   }
 }
 
-export function signInWithProvider(provider: 'google' | 'apple') {
-  if (!supabase) return
-  void supabase.auth.signInWithOAuth({
-    provider,
-    options: { redirectTo: `${window.location.origin}/auth` },
-  })
+/** Starts the provider redirect. Resolves to a message only if it could not start. */
+export async function signInWithProvider(provider: 'google' | 'apple'): Promise<string | null> {
+  if (!supabase) return 'Backend not configured.'
+  try {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: `${window.location.origin}/auth` },
+    })
+    return error ? error.message : null
+  } catch {
+    return 'Couldn’t reach the sign-in service — check your connection and try again.'
+  }
 }
 
 export async function signInWithEmail(email: string): Promise<string | null> {
@@ -131,11 +144,19 @@ export async function verifyEmailCode(email: string, code: string): Promise<stri
   return error ? error.message : null
 }
 
-export async function signOut() {
+/**
+ * Signing out wipes this device, so anything the cloud has not confirmed is
+ * lost for good. Pending edits are pushed first; if some still could not be
+ * saved (offline, say) this returns 'unsynced' and does nothing, unless
+ * `force` says the user chose to lose them.
+ */
+export async function signOut(force = false): Promise<'done' | 'unsynced'> {
   await flushSync() // an edit made a second ago must reach the cloud before the device is wiped
+  if (!force && state.session && hasUnsyncedChanges(state.session.user.id)) return 'unsynced'
   stopSync()
   await supabase?.auth.signOut()
   clearLocalData() // the next account on this device starts clean
+  return 'done'
 }
 
 /** Permanently deletes the auth user; cascades wipe all their rows. */

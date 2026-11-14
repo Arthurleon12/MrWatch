@@ -163,12 +163,21 @@ function AccountControls({ email }: { email: string }) {
     }
   }
 
+  async function handleSignOut() {
+    if ((await signOut()) !== 'unsynced') return
+    const lose = window.confirm(
+      'Some of your recent changes could not be saved to your account yet (are you offline?). ' +
+        'Signing out now erases them from this device for good. Sign out anyway?',
+    )
+    if (lose) await signOut(true)
+  }
+
   return (
     <div className="mt-3 rounded-xl bg-surface p-3.5">
       <p className="text-xs text-ink-soft">Signed in as {email || 'your account'} — syncing across devices.</p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
-          onClick={() => void signOut()}
+          onClick={() => void handleSignOut()}
           disabled={deleting}
           className="min-h-11 rounded-full bg-raised px-4 font-display text-xs font-bold text-ink-soft disabled:opacity-40"
         >

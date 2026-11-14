@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLibrary } from '../store/library'
 import { useSpoilerGuard, useTrackedShowDetails } from '../queries'
@@ -21,7 +22,8 @@ export function SchedulePage() {
   // behind on a show? its upcoming titles give away what you haven't seen yet
   const spoilers = useSpoilerGuard(trackedIds)
 
-  const now = new Date()
+  // one clock reading per visit: render must not depend on when it happens to run
+  const [now] = useState(() => new Date())
   const horizon = new Date(now.getTime() + HORIZON_DAYS * 86_400_000)
   const upcoming: Upcoming[] = []
   const waitingForDate: TvmShow[] = []
