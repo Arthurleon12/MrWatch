@@ -172,6 +172,22 @@ function cosine(a: Map<string, number>, b: Map<string, number>): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
 
+/** A library this size is enough for its overlap with another to mean something. */
+const FULL_CONFIDENCE_SIZE = 5
+
+/**
+ * How much of the smaller library the other person shares, 0..1 — discounted
+ * when the smaller library is tiny. Dividing by the smaller side is what lets
+ * a casual viewer match a completist, but on its own it calls someone with
+ * two shows a perfect match for anyone who happens to have both.
+ */
+export function overlapScore(shared: number, sizeA: number, sizeB: number): number {
+  const smaller = Math.min(sizeA, sizeB)
+  if (smaller <= 0) return 0
+  const confidence = Math.min(1, smaller / FULL_CONFIDENCE_SIZE)
+  return Math.min(1, shared / smaller) * confidence
+}
+
 export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatch {
   const bShowIds = new Set(b.trackedShows.map((s) => s.id))
   const sharedShows = a.trackedShows.filter((s) => bShowIds.has(s.id))
@@ -213,12 +229,16 @@ export function computeTasteMatch(a: TasteSnapshot, b: TasteSnapshot): TasteMatc
     parts.push({ weight: 0.45, value: Math.pow(similarity, 1.25) })
   }
   if (a.trackedShows.length > 0 && b.trackedShows.length > 0) {
-    const containment = sharedShows.length / Math.min(a.trackedShows.length, b.trackedShows.length)
-    parts.push({ weight: 0.3, value: containment })
+    parts.push({
+      weight: 0.3,
+      value: overlapScore(sharedShows.length, a.trackedShows.length, b.trackedShows.length),
+    })
   }
   if (a.watchedMovies.length > 0 && b.watchedMovies.length > 0) {
-    const containment = sharedMovies.length / Math.min(a.watchedMovies.length, b.watchedMovies.length)
-    parts.push({ weight: 0.15, value: containment })
+    parts.push({
+      weight: 0.15,
+      value: overlapScore(sharedMovies.length, a.watchedMovies.length, b.watchedMovies.length),
+    })
   }
   if (ladderAgreements.length > 0) {
     const closeness =
