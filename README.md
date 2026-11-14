@@ -31,7 +31,7 @@ follow [SETUP.md](SETUP.md) (Supabase + Vercel, ~30–45 min of account setup).
 
 ## Stack
 
-React 19 · Vite 6 · TypeScript · Tailwind v4 · TanStack Query · React Router ·
+React 19 · Vite 8 · TypeScript 7 · Tailwind v4 · TanStack Query · React Router ·
 Supabase (Postgres, Auth, RLS) · TVmaze API (shows & air dates) · TMDB (collaborative recs)
 
 Data lives in swappable stores (`src/store/*`) — localStorage first, write-through
