@@ -4,6 +4,7 @@ import {
   computeTasteMatch,
   genreFitFor,
   normGenre,
+  overlapScore,
   scoreTitleForPair,
   tasteDetailIds,
 } from './match'
@@ -336,5 +337,35 @@ describe('invariants over many histories', () => {
     })
     expect(genreFitFor(['Anime', 'Animation'], fan)).toBe(1)
     expect(genreFitFor(['Family', 'Children'], fan)).toBe(0)
+  })
+})
+
+describe('overlap between uneven libraries', () => {
+  it('does not call two shared shows a perfect match', () => {
+    expect(overlapScore(2, 200, 2)).toBeCloseTo(0.4)
+    expect(overlapScore(5, 200, 5)).toBe(1)
+    expect(overlapScore(10, 200, 20)).toBe(0.5)
+  })
+
+  it('is symmetric and safe on empty libraries', () => {
+    expect(overlapScore(2, 2, 200)).toBe(overlapScore(2, 200, 2))
+    expect(overlapScore(0, 0, 10)).toBe(0)
+    expect(overlapScore(9, 3, 3)).toBe(0.6) // never above the confidence cap
+  })
+
+  it('a completist and someone with two shows are not a 100% match', () => {
+    const many = Array.from({ length: 200 }, (_, i) =>
+      makeShow({ id: i + 1, name: `Show ${i + 1}`, genres: ['Drama'] }),
+    )
+    const big = snapshot({ username: 'completist', shows: many })
+    const small = snapshot({ username: 'newcomer', shows: many.slice(0, 2) })
+    const match = computeTasteMatch(big, small)
+    expect(match.percent).toBeLessThan(100)
+    expect(match.percent).toBe(computeTasteMatch(small, big).percent)
+
+    // …while two people who genuinely share a real shelf still score full marks
+    const peer = snapshot({ username: 'peer', shows: many.slice(0, 20) })
+    const twin = snapshot({ username: 'twin', shows: many.slice(0, 20) })
+    expect(computeTasteMatch(peer, twin).percent).toBe(100)
   })
 })
